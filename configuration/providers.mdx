@@ -1,0 +1,294 @@
+---
+title: LLM Providers
+description: Authenticate with Anthropic, OpenAI, Google, OpenRouter, and 20+ other providers
+---
+
+GSD supports **20+ LLM providers** out of the box. You can use different providers for different phases, or switch between them anytime.
+
+## Supported Providers
+
+<CardGroup cols={3}>
+  <Card title="Anthropic" icon="robot">
+    Claude Opus, Sonnet, Haiku
+    
+    OAuth or API key
+  </Card>
+  
+  <Card title="OpenAI" icon="circle">
+    GPT-5, GPT-4o, GPT-4o-mini
+    
+    API key
+  </Card>
+  
+  <Card title="Google" icon="google">
+    Gemini Pro, Flash, Exp
+    
+    OAuth or API key
+  </Card>
+  
+  <Card title="OpenRouter" icon="route">
+    400+ models from all providers
+    
+    API key
+  </Card>
+  
+  <Card title="GitHub Copilot" icon="github">
+    GPT-4o, GPT-4o-mini
+    
+    OAuth
+  </Card>
+  
+  <Card title="xAI" icon="x-twitter">
+    Grok 2, Grok 2 Mini
+    
+    API key
+  </Card>
+  
+  <Card title="Groq" icon="bolt">
+    Fast inference for Llama, Mixtral
+    
+    API key
+  </Card>
+  
+  <Card title="Mistral" icon="wind">
+    Mistral Large, Medium, Small
+    
+    API key
+  </Card>
+  
+  <Card title="Amazon Bedrock" icon="aws">
+    Claude, Titan, Llama
+    
+    AWS credentials
+  </Card>
+  
+  <Card title="Azure OpenAI" icon="microsoft">
+    GPT-5, GPT-4o
+    
+    API key + endpoint
+  </Card>
+  
+  <Card title="Google Vertex" icon="google">
+    Gemini via GCP
+    
+    GCP credentials
+  </Card>
+  
+  <Card title="HuggingFace" icon="face-smile">
+    Inference endpoints
+    
+    API key
+  </Card>
+</CardGroup>
+
+## First-Time Setup
+
+On first launch, GSD runs an onboarding wizard that walks you through provider authentication:
+
+```bash
+gsd
+```
+
+The wizard:
+1. Shows the GSD logo and welcome message
+2. Prompts you to choose an LLM provider
+3. Walks through OAuth or API key authentication
+4. Optionally configures tool API keys (Brave Search, Context7, etc.)
+5. Shows a setup summary
+
+All steps are skippable. Press Enter to skip any step.
+
+## Adding Providers Later
+
+To add or change providers after initial setup:
+
+```bash
+/login
+```
+
+This opens the provider selection menu inside the GSD session.
+
+## Re-running Setup
+
+To replay the full onboarding wizard:
+
+```bash
+gsd config
+```
+
+This re-runs the branded wizard from scratch.
+
+## Authentication Methods
+
+### OAuth Login
+
+Some providers support OAuth:
+
+- **Anthropic** — Claude Max subscribers
+- **GitHub Copilot** — Copilot subscribers
+- **ChatGPT Plus/Pro** — Codex (GPT-5) access
+- **Google Gemini CLI** — Free tier
+- **Antigravity** — Gemini 3, Claude, GPT-OSS
+
+GSD opens your browser, you authenticate, and GSD stores the session. No API key needed.
+
+<Note>
+OAuth flows require a browser. If you're on a headless server, use API key authentication instead.
+</Note>
+
+### API Key
+
+Most providers use API keys:
+
+```bash
+/login
+# Select provider
+# Paste API key when prompted
+```
+
+GSD stores keys securely in `~/.gsd/auth.json`.
+
+## OpenRouter
+
+[OpenRouter](https://openrouter.ai) gives you access to **400+ models** through a single API key:
+
+1. Sign up at [openrouter.ai](https://openrouter.ai)
+2. Generate an API key
+3. Run `/login` in GSD
+4. Select "OpenRouter"
+5. Paste your key
+
+Now you can use any OpenRouter model:
+
+```yaml
+models:
+  research: openrouter/deepseek/deepseek-r1
+  planning: openrouter/anthropic/claude-opus-4-6
+  execution: openrouter/z-ai/glm-5
+  completion: openrouter/minimax/minimax-m2.5
+```
+
+<Tip>
+OpenRouter is the easiest way to try different models without managing multiple API keys.
+</Tip>
+
+## Max Plans and Subscriptions
+
+If you have a **Claude Max**, **ChatGPT Plus/Pro**, or **GitHub Copilot** subscription, you can use those directly:
+
+- **Claude Max** → Anthropic OAuth
+- **ChatGPT Plus/Pro** → OpenAI Codex OAuth (GPT-5 access)
+- **GitHub Copilot** → GitHub Copilot OAuth
+
+No API key required. GSD handles the OAuth flow.
+
+## Provider Credentials
+
+Credentials are stored in:
+
+```
+~/.gsd/auth.json
+```
+
+This file contains:
+- API keys
+- OAuth tokens
+- Provider-specific configuration
+
+GSD encrypts sensitive values where possible.
+
+## Migrating from Pi
+
+If you have an existing Pi installation, GSD automatically imports your credentials on first launch:
+
+- LLM provider auth (Anthropic, OpenAI, etc.)
+- Tool keys (Brave Search, Context7, etc.)
+- Default model selection
+
+No manual migration needed.
+
+## Environment Variables
+
+You can also configure providers via environment variables:
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+export OPENAI_API_KEY="sk-..."
+export OPENROUTER_API_KEY="sk-or-..."
+
+gsd
+```
+
+Environment variables take precedence over stored credentials.
+
+## Model Registry
+
+GSD maintains a model registry showing which models are available from your configured providers.
+
+To view available models:
+
+```bash
+/model
+```
+
+This shows:
+- All models from authenticated providers
+- Model names and IDs
+- Token limits
+- Cost per million tokens
+
+## Validation
+
+GSD validates provider credentials on startup:
+
+- Checks if configured providers are available
+- Warns if default model is unavailable
+- Auto-selects a fallback if needed
+
+## Provider-Specific Notes
+
+### Amazon Bedrock
+
+Requires AWS credentials:
+
+```bash
+export AWS_ACCESS_KEY_ID="..."
+export AWS_SECRET_ACCESS_KEY="..."
+export AWS_REGION="us-east-1"
+```
+
+Model IDs use Bedrock format:
+
+```yaml
+models:
+  planning: us.anthropic.claude-opus-4-6-v1
+```
+
+### Azure OpenAI
+
+Requires endpoint configuration:
+
+```bash
+export AZURE_OPENAI_API_KEY="..."
+export AZURE_OPENAI_ENDPOINT="https://your-resource.openai.azure.com/"
+```
+
+### Google Vertex
+
+Requires GCP credentials:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Model Selection" icon="brain" href="/configuration/models">
+    Configure per-phase model selection
+  </Card>
+  <Card title="Preferences" icon="sliders" href="/configuration/preferences">
+    Learn about all preference options
+  </Card>
+</CardGroup>

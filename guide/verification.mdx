@@ -1,0 +1,516 @@
+---
+title: Verification
+description: How GSD proves that work is actually done — the verification ladder from static checks to human review
+---
+
+Every task in GSD has **must-haves** — mechanically checkable outcomes that prove the task is complete. Verification is not optional. It's the most important part of execution.
+
+## The Verification Ladder
+
+GSD climbs a ladder from **cheap, fast checks** to **expensive, thorough checks**:
+
+```
+1. Static checks     (parse, lint, type-check)
+2. Command execution (build, test, run)
+3. Behavioral testing (browser, API, observability)
+4. Human review      (only when genuinely needed)
+```
+
+The goal: **push verification as high up the ladder as possible** without sacrificing accuracy.
+
+## Must-Haves
+
+Every task plan includes a **Must-Haves** section:
+
+```markdown
+## Must-Haves
+
+- [ ] User can sign up with email and password
+- [ ] Password is hashed before storing
+- [ ] Signup endpoint returns 201 with user ID
+- [ ] Duplicate email returns 409 Conflict
+```
+
+These are **observable behaviors** or **artifacts that must exist**. Not implementation details.
+
+<Tip>
+Good must-haves answer: "How would a future agent verify this task is done without reading the code?"
+</Tip>
+
+## Types of Must-Haves
+
+### Truths (Observable Behaviors)
+
+Behaviors that can be verified by running the system:
+
+- "User can log in with valid credentials"
+- "Dashboard shows real-time metrics"
+- "Expired sessions redirect to login"
+- "File upload supports 100MB files"
+
+**How to verify**:
+- Run the app, exercise the behavior
+- Use browser automation for UI flows
+- Call APIs and check responses
+- Check observability signals (logs, metrics, errors)
+
+### Artifacts (Files That Must Exist)
+
+Files that must exist with real implementation (not stubs):
+
+- "`src/auth/login.ts` with password validation"
+- "`tests/auth.test.ts` with 5+ test cases"
+- "`docs/api.md` documents the /auth endpoints"
+- "`migrations/003_add_sessions.sql` creates sessions table"
+
+**How to verify**:
+- Check the file exists
+- Read it to ensure it's not a stub
+- Run tests to ensure it works
+
+### Key Links (Imports and Wiring)
+
+Connections between artifacts that prove integration:
+
+- "`server.ts` imports and mounts auth router"
+- "`App.tsx` uses AuthProvider"
+- "`package.json` includes bcrypt dependency"
+- "Database migrations are applied in order"
+
+**How to verify**:
+- Grep for the import
+- Check the registry/config
+- Run the build (catches broken imports)
+
+## Verification Section
+
+Every task plan includes a **Verification** section with concrete checks:
+
+```markdown
+## Verification
+
+- Run `npm test -- auth.test.ts` — all tests pass
+- POST to `/auth/signup` with valid data — returns 201
+- POST with duplicate email — returns 409 Conflict
+- Check database — password is hashed (bcrypt format)
+- Browser: sign up form → success message appears
+```
+
+The LLM executes these checks during the task. If a check fails, the task is not done.
+
+## Verification During Execution
+
+From the `execute-task` prompt (line 26-37 in `execute-task.md`):
+
+```markdown
+6. Verify must-haves are met by running concrete checks (tests, commands, observable behaviors)
+7. Run the slice-level verification checks defined in the slice plan's Verification section.
+   Track which pass. On the final task of the slice, all must pass before marking done.
+8. If the task touches UI, browser flows, DOM behavior, or user-visible web state:
+   - exercise the real flow in the browser
+   - prefer `browser_batch` when the next few actions are obvious and sequential
+   - prefer `browser_assert` for explicit pass/fail verification of the intended outcome
+   - use `browser_diff` when an action's effect is ambiguous
+   - use console/network/dialog diagnostics when validating async, stateful, or failure-prone UI
+   - record verification in terms of explicit checks passed/failed, not only prose interpretation
+```
+
+### Task-Level Verification
+
+Every task verifies its own must-haves:
+
+**Example** (T02: Login Endpoint):
+
+```bash
+# Build passes (proves imports are wired correctly)
+npm run build
+✓ Build successful
+
+# Tests pass
+npm test -- auth/login.test.ts
+✓ 8 tests passed
+
+# Endpoint works
+curl -X POST http://localhost:3000/auth/login \
+  -d '{"email":"test@example.com","password":"secret"}'
+{"token":"eyJhbG...","userId":"123"}
+✓ Returns 200 with token
+
+# Invalid password fails
+curl -X POST http://localhost:3000/auth/login \
+  -d '{"email":"test@example.com","password":"wrong"}'
+{"error":"Invalid credentials"}
+✓ Returns 401 for invalid password
+```
+
+All checks passed. Task is done.
+
+### Slice-Level Verification
+
+The slice plan defines **slice-level checks** that span multiple tasks:
+
+```markdown
+## Verification
+
+- [ ] All auth tests pass (`npm test -- auth/`)
+- [ ] User can sign up, log in, and access protected route
+- [ ] Session persists across server restart
+- [ ] Rate limiting prevents brute force (100 req/min)
+```
+
+Each task runs these checks and reports which ones pass:
+
+**After T01 (User Model)**:
+- ✓ Auth tests pass (4/4)
+- ✗ User can't log in yet (no endpoint)
+- ✗ No session persistence yet
+- ✗ No rate limiting yet
+
+**After T02 (Login Endpoint)**:
+- ✓ Auth tests pass (8/8)
+- ✓ User can log in
+- ✗ No session persistence yet
+- ✗ No rate limiting yet
+
+**After T03 (Session Middleware)**:
+- ✓ Auth tests pass (12/12)
+- ✓ User can log in
+- ✓ Session persists across restart
+- ✗ No rate limiting yet
+
+**After T04 (Rate Limiting)**:
+- ✓ All checks pass
+
+Slice is complete.
+
+## Observability Impact
+
+For tasks that touch **runtime boundaries** (APIs, async flows, background processes, error paths), the task plan includes an **Observability Impact** section:
+
+```markdown
+## Observability Impact
+
+- Signals added/changed: 
+  - Error log on failed login attempt
+  - Metric: `auth.login.success` counter
+  - Metric: `auth.login.failure` counter
+- How a future agent inspects this:
+  - Query logs: `grep 'auth.login.failed' logs/app.log`
+  - Check Prometheus: `sum(rate(auth_login_success[5m]))`
+- Failure state exposed:
+  - 401 response includes `{"reason":"invalid_password"}` for debugging
+```
+
+The LLM verifies these signals exist:
+
+```bash
+# Trigger a failed login
+curl -X POST http://localhost:3000/auth/login \
+  -d '{"email":"test@example.com","password":"wrong"}'
+
+# Check the log
+grep 'auth.login.failed' logs/app.log
+[2026-03-13 10:23:45] INFO auth.login.failed email=test@example.com reason=invalid_password
+✓ Failure logged
+
+# Check the response
+{"error":"Invalid credentials","reason":"invalid_password"}
+✓ Failure reason exposed
+```
+
+Observability is part of verification. If failures are silent, the task is not done.
+
+## Browser Verification
+
+For UI tasks, GSD uses **browser automation** to verify behaviors:
+
+### Example: Signup Flow
+
+```markdown
+## Must-Haves
+
+- [ ] User can submit signup form with email and password
+- [ ] Success message appears after signup
+- [ ] Duplicate email shows error message
+- [ ] Empty password shows validation error
+```
+
+**Verification**:
+
+```typescript
+// Open the signup page
+await browser.navigate('http://localhost:3000/signup');
+
+// Fill the form
+await browser.type('input[name="email"]', 'test@example.com');
+await browser.type('input[name="password"]', 'secret123');
+await browser.click('button[type="submit"]');
+
+// Assert success message appears
+const message = await browser.text('.success-message');
+assert(message.includes('Account created'));
+✓ Success message appears
+
+// Try duplicate email
+await browser.type('input[name="email"]', 'test@example.com');
+await browser.type('input[name="password"]', 'another');
+await browser.click('button[type="submit"]');
+
+const error = await browser.text('.error-message');
+assert(error.includes('already exists'));
+✓ Duplicate email error shows
+```
+
+All visual behaviors verified.
+
+### Browser Commands
+
+GSD prefers:
+
+- **`browser_batch`** — Sequential actions when the flow is obvious
+- **`browser_assert`** — Explicit pass/fail for intended outcome
+- **`browser_diff`** — When an action's effect is ambiguous
+
+From the execute-task prompt:
+
+```markdown
+- prefer `browser_batch` when the next few actions are obvious and sequential
+- prefer `browser_assert` for explicit pass/fail verification of the intended outcome
+- use `browser_diff` when an action's effect is ambiguous
+- use console/network/dialog diagnostics when validating async, stateful, or failure-prone UI
+- record verification in terms of explicit checks passed/failed, not only prose interpretation
+```
+
+## Test-First Verification
+
+GSD encourages **writing tests as part of execution**, not after:
+
+From the execute-task prompt (line 26):
+
+```markdown
+4. Write or update tests as part of execution — tests are verification, not an afterthought.
+   If the slice plan defines test files in its Verification section and this is the first task, create them (they should initially fail).
+```
+
+### Pattern: Red-Green Execution
+
+**T01: User Model**
+
+1. Create `tests/user.test.ts` (red — fails because User doesn't exist)
+2. Implement `src/models/User.ts`
+3. Run tests (green — all pass)
+4. Write T01-SUMMARY.md
+
+**T02: Login Endpoint**
+
+1. Add test to `tests/auth.test.ts` (red — endpoint doesn't exist)
+2. Implement `src/routes/auth.ts`
+3. Run tests (green — all pass)
+4. Write T02-SUMMARY.md
+
+Tests are created incrementally. By the final task, all tests exist and pass.
+
+## Verification in the Summary
+
+Every task summary documents verification results:
+
+```yaml
+---
+done: true
+blocker_discovered: false
+verification_status: passed
+---
+
+# T02: Login Endpoint
+
+**What was built**:
+- POST /auth/login endpoint
+- Password comparison with bcrypt
+- JWT token generation
+- Tests for success and failure cases
+
+**Verification**:
+- ✓ `npm test -- auth.test.ts` — 8/8 passed
+- ✓ POST /auth/login with valid credentials → 200 with token
+- ✓ POST with invalid password → 401 Unauthorized
+- ✓ POST with nonexistent email → 401 Unauthorized
+- ✓ Response includes userId and token
+
+**Slice-level checks**:
+- ✓ All auth tests pass (8/8)
+- ✓ User can sign up and log in
+- ✗ Session persistence (T03)
+- ✗ Rate limiting (T04)
+
+2/4 slice checks pass. On track for slice completion.
+```
+
+The summary proves the task is done.
+
+## When Verification Fails
+
+From the execute-task prompt (line 40-48):
+
+```markdown
+**Debugging discipline:** If a verification check fails or implementation hits unexpected behavior:
+- Form a hypothesis first. State what you think is wrong and why, then test that specific theory. Don't shotgun-fix.
+- Change one variable at a time. Make one change, test, observe. Multiple simultaneous changes mean you can't attribute what worked.
+- Read completely. When investigating, read entire functions and their imports, not just the line that looks relevant.
+- Distinguish "I know" from "I assume." Observable facts (the error says X) are strong evidence. Assumptions (this library should work this way) need verification.
+- Know when to stop. If you've tried 3+ fixes without progress, your mental model is probably wrong. Stop. List what you know for certain. List what you've ruled out. Form fresh hypotheses from there.
+- Don't fix symptoms. Understand *why* something fails before changing code. A test that passes after a change you don't understand is luck, not a fix.
+```
+
+### Example: Failed Test
+
+**Verification check**:
+
+```bash
+npm test -- auth.test.ts
+
+✗ should hash password before storing
+  Expected: bcrypt hash
+  Received: plaintext password
+```
+
+**Debugging**:
+
+1. **Hypothesis**: Password hashing isn't called
+2. **Test**: Read `src/models/User.ts` — no bcrypt call before save
+3. **Fix**: Add `user.password = await bcrypt.hash(password, 10);`
+4. **Verify**: Run test again
+
+```bash
+✓ should hash password before storing
+```
+
+Test passes. Root cause understood.
+
+### Pattern: Stop After 3 Failed Attempts
+
+From the execute-task prompt (line 45):
+
+```markdown
+Know when to stop. If you've tried 3+ fixes without progress, your mental model is probably wrong.
+Stop. List what you know for certain. List what you've ruled out. Form fresh hypotheses from there.
+```
+
+**Example**:
+
+**Attempt 1**: Changed import path → test still fails  
+**Attempt 2**: Moved function → test still fails  
+**Attempt 3**: Added await → test still fails  
+
+**Stop**. Write down:
+
+**What I know for certain**:
+- Test expects bcrypt hash
+- Test receives plaintext
+- bcrypt.hash() is imported
+- bcrypt.hash() is called in the code
+
+**What I've ruled out**:
+- Import path (correct)
+- Function location (correct)
+- Async handling (correct)
+
+**New hypothesis**: The hash call happens *after* the password is saved to the database.
+
+**Test**: Read the save flow. Confirmed — save happens before hash.
+
+**Fix**: Move hash call before save.
+
+**Verify**: Test passes.
+
+Stopping and re-assessing saves time.
+
+## Blocker Discovery
+
+From the execute-task prompt (line 49):
+
+```markdown
+**Blocker discovery:** If execution reveals that the remaining slice plan is fundamentally invalid —
+not just a bug or minor deviation, but a plan-invalidating finding like a wrong API, missing capability,
+or architectural mismatch — set `blocker_discovered: true` in the task summary frontmatter and describe
+the blocker clearly in the summary narrative.
+```
+
+### Example: Plan-Invalidating Finding
+
+**Slice**: S03: Real-Time Updates  
+**Task**: T01: Implement WebSocket Server  
+
+**During execution**:
+
+```bash
+npm install ws
+# Check if the hosting platform supports WebSockets
+curl https://docs.platform.com/websockets
+"WebSockets are not supported on this plan. Upgrade to Enterprise."
+```
+
+**Blocker discovered**: The plan assumes WebSocket support, but the hosting platform doesn't support it.
+
+**Summary**:
+
+```yaml
+---
+done: false
+blocker_discovered: true
+verification_status: blocked
+---
+
+# T01: Implement WebSocket Server
+
+**Blocker**: Hosting platform (Heroku free tier) does not support WebSockets.
+The slice plan assumes WebSocket support, but this is not available without upgrading to Enterprise ($$$).
+
+**Options**:
+1. Use Server-Sent Events (SSE) instead
+2. Upgrade hosting plan
+3. Use a third-party service (Pusher, Ably)
+
+**Recommendation**: Replan S03 to use SSE instead of WebSockets.
+```
+
+Auto mode sees `blocker_discovered: true` and triggers `replan-slice`.
+
+## Verification Checklist
+
+Copy this into task summaries:
+
+```markdown
+### Verification Checklist
+
+**Must-Haves**:
+- [ ] Must-have 1 verified
+- [ ] Must-have 2 verified
+- [ ] Must-have 3 verified
+
+**Verification Commands**:
+- [ ] `npm test` — all tests pass
+- [ ] `npm run build` — builds without errors
+- [ ] `npm start` — app runs locally
+
+**Slice-Level Checks**:
+- [ ] Check 1 (from slice plan)
+- [ ] Check 2 (from slice plan)
+- [ ] Check 3 (from slice plan)
+
+**Observability** (if applicable):
+- [ ] Logs show expected signals
+- [ ] Metrics are emitted
+- [ ] Failure states are exposed
+
+**Sign-Off**:
+- [ ] I understand what this task built
+- [ ] I've verified all must-haves
+- [ ] I've tested for regressions
+- [ ] I'm confident this works
+```
+
+## Related
+
+- [Step Mode](/guide/step-mode) — Execute and verify one task at a time
+- [Auto Mode](/guide/auto-mode) — Autonomous execution with verification at every step
+- [Two-Terminal Workflow](/guide/two-terminal-workflow) — Monitor verification from a second terminal

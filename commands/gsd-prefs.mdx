@@ -1,0 +1,535 @@
+---
+title: /gsd prefs
+description: Configure GSD preferences and skill discovery
+---
+
+The `/gsd prefs` command manages GSD configuration at global and project levels. Preferences control skill discovery, model selection, auto-supervisor, and budget limits.
+
+## Syntax
+
+```bash
+/gsd prefs [global|project|status]
+```
+
+## Subcommands
+
+### global
+
+Edit global preferences (applies to all projects):
+
+```bash
+/gsd prefs global
+```
+
+**Location:** `~/.config/opencode/gsd-preferences.md` (or `~/.opencode/gsd-preferences.md` legacy)
+
+### project
+
+Edit project-specific preferences (overrides global):
+
+```bash
+/gsd prefs project
+```
+
+**Location:** `.gsd/gsd-preferences.md`
+
+### status
+
+View current preference resolution:
+
+```bash
+/gsd prefs status
+```
+
+**Output:**
+
+```
+GSD skill prefs — global present: ~/.config/opencode/gsd-preferences.md; project missing: .gsd/gsd-preferences.md
+Skills: 12 resolved, 2 unresolved
+Unresolved: custom-api-client, internal-deploy-tool
+```
+
+## Preference File Format
+
+Preferences are Markdown files with YAML frontmatter:
+
+```markdown
+---
+budget_ceiling: 5.00
+skill_discovery: auto
+auto_supervisor:
+  model: anthropic/claude-3-7-sonnet-20250219
+  enabled: true
+model_preferences:
+  research-milestone: anthropic/claude-3-7-sonnet-20250219
+  plan-milestone: anthropic/claude-3-7-sonnet-20250219
+  research-slice: anthropic/claude-3-7-sonnet-20250219
+  plan-slice: anthropic/claude-3-7-sonnet-20250219
+  execute-task: anthropic/claude-4.5-sonnet
+  complete-slice: anthropic/claude-3-7-sonnet-20250219
+  replan-slice: anthropic/claude-3-7-sonnet-20250219
+  reassess-roadmap: anthropic/claude-3-7-sonnet-20250219
+always_use_skills:
+  - typescript-sdk
+  - api-testing
+prefer_skills:
+  - postgres-migrations
+avoid_skills:
+  - legacy-orm-tool
+custom_instructions:
+  - Always use async/await, never callbacks
+  - Prefer functional style over classes
+skill_rules:
+  - when: "database migrations"
+    use:
+      - postgres-migrations
+      - db-seed-tool
+  - when: "API endpoints"
+    prefer:
+      - openapi-generator
+    avoid:
+      - manual-swagger
+git:
+  main_branch: main
+  auto_commit: true
+  commit_message_template: "{{type}}({{scope}}): {{description}}"
+---
+
+# GSD Preferences
+
+Project-specific configuration for GSD workflow.
+
+## Skill Discovery
+
+Auto-discovery is enabled. GSD will install skills after research phases.
+
+## Model Preferences
+
+Research and planning use Sonnet 3.7 for better reasoning. Task execution uses
+Sonnet 4.5 for faster iteration.
+
+## Custom Instructions
+
+Project coding style:
+- Async/await only (no callbacks)
+- Functional style preferred
+- Comprehensive error handling
+```
+
+## Configuration Options
+
+### budget_ceiling
+
+Maximum spend per session (auto mode pauses when reached):
+
+```yaml
+budget_ceiling: 5.00
+```
+
+**Type:** `number` (USD)
+
+**Default:** No limit
+
+**Example:**
+
+```bash
+/gsd auto
+# After spending $5.00:
+# "Budget ceiling $5.00 reached (spent $5.00). Pausing auto-mode."
+```
+
+### skill_discovery
+
+Control skill installation behavior:
+
+```yaml
+skill_discovery: auto | manual | off
+```
+
+**Options:**
+- `auto` - Install skills after research phases (default)
+- `manual` - Prompt user before installing
+- `off` - Never install skills
+
+**How it works:**
+
+1. Research phase mentions "need postgres migrations tool"
+2. GSD searches skill registry for matches
+3. If `auto`, installs `postgres-migrations` skill
+4. Next unit has the skill available in context
+
+See [Skill Discovery](/advanced/skill-discovery) for details.
+
+### auto_supervisor
+
+Progress-aware timeout supervision:
+
+```yaml
+auto_supervisor:
+  model: anthropic/claude-3-7-sonnet-20250219
+  enabled: true
+```
+
+**Fields:**
+- `model` - Model to use for supervisor prompts
+- `enabled` - Enable/disable supervision
+
+**Default:** Disabled
+
+When enabled, auto-supervisor:
+1. Detects idle units (no tool calls for 60s)
+2. Sends a supervisor prompt: "You haven't made progress. What's blocking you?"
+3. Helps LLM recover from stuck states
+
+See `unit-runtime.ts` for implementation.
+
+### model_preferences
+
+Per-unit-type model selection:
+
+```yaml
+model_preferences:
+  research-milestone: anthropic/claude-3-7-sonnet-20250219
+  execute-task: anthropic/claude-4.5-sonnet
+```
+
+**Unit types:**
+- `research-milestone`
+- `plan-milestone`
+- `research-slice`
+- `plan-slice`
+- `execute-task`
+- `complete-slice`
+- `replan-slice`
+- `reassess-roadmap`
+- `run-uat`
+- `complete-milestone`
+
+**Default:** Uses current model for all units
+
+**Use case:** Use slower, smarter models for research/planning, faster models for execution.
+
+### always_use_skills
+
+Skills to always include in context:
+
+```yaml
+always_use_skills:
+  - typescript-sdk
+  - api-testing
+```
+
+**Type:** `string[]` (skill names)
+
+**Behavior:** These skills are loaded for every unit, regardless of context.
+
+### prefer_skills
+
+Skills to prefer when relevant:
+
+```yaml
+prefer_skills:
+  - postgres-migrations
+```
+
+**Type:** `string[]` (skill names)
+
+**Behavior:** When GSD needs database migration help, it will prioritize `postgres-migrations` over other migration skills.
+
+### avoid_skills
+
+Skills to never use:
+
+```yaml
+avoid_skills:
+  - legacy-orm-tool
+```
+
+**Type:** `string[]` (skill names)
+
+**Behavior:** Even if discovered, these skills won't be installed or loaded.
+
+### custom_instructions
+
+Project-specific coding guidelines:
+
+```yaml
+custom_instructions:
+  - Always use async/await, never callbacks
+  - Prefer functional style over classes
+  - All functions must have JSDoc comments
+```
+
+**Type:** `string[]`
+
+**Behavior:** Injected into every unit prompt as additional instructions.
+
+### skill_rules
+
+Context-dependent skill preferences:
+
+```yaml
+skill_rules:
+  - when: "database migrations"
+    use:
+      - postgres-migrations
+      - db-seed-tool
+  - when: "API endpoints"
+    prefer:
+      - openapi-generator
+    avoid:
+      - manual-swagger
+```
+
+**Type:** `array` of objects with:
+- `when` - Context matcher (substring or regex)
+- `use` - Skills to always use in this context
+- `prefer` - Skills to prefer in this context
+- `avoid` - Skills to avoid in this context
+
+**Matching:** GSD checks the current task title and description. If `when` matches, the rule applies.
+
+### git
+
+Git workflow configuration:
+
+```yaml
+git:
+  main_branch: main
+  auto_commit: true
+  commit_message_template: "{{type}}({{scope}}): {{description}}"
+```
+
+**Fields:**
+- `main_branch` - Name of main branch (default: `main`)
+- `auto_commit` - Enable auto-commit after each unit (default: `true`)
+- `commit_message_template` - Conventional commit template
+
+**Template variables:**
+- `{{type}}` - Commit type (feat, fix, chore, etc.)
+- `{{scope}}` - Unit scope (milestone/slice/task ID)
+- `{{description}}` - Auto-generated description
+
+See [Git Service](/concepts/git-strategy) for details.
+
+## Preference Resolution
+
+GSD merges preferences in priority order:
+
+1. **Project preferences** (`.gsd/gsd-preferences.md`) - Highest priority
+2. **Global preferences** (`~/.config/opencode/gsd-preferences.md`)
+3. **Defaults** (built-in)
+
+```typescript
+export function loadEffectiveGSDPreferences(): {
+  path: string;
+  preferences: GSDPreferences;
+} | null {
+  const project = loadProjectGSDPreferences();
+  const global = loadGlobalGSDPreferences();
+  
+  if (project) {
+    // Merge: project overrides global
+    return {
+      path: project.path,
+      preferences: { ...global?.preferences, ...project.preferences },
+    };
+  }
+  
+  return global;
+}
+```
+
+**Example:**
+
+Global:
+```yaml
+budget_ceiling: 10.00
+skill_discovery: auto
+```
+
+Project:
+```yaml
+budget_ceiling: 2.00
+```
+
+Effective:
+```yaml
+budget_ceiling: 2.00      # from project
+skill_discovery: auto     # from global
+```
+
+## Creating Preferences
+
+On first invocation, GSD creates a template:
+
+```typescript
+async function ensurePreferencesFile(
+  path: string,
+  ctx: ExtensionCommandContext,
+  scope: "global" | "project",
+): Promise<void> {
+  if (!existsSync(path)) {
+    const template = await loadFile(join(__dirname, "templates", "preferences.md"));
+    await saveFile(path, template);
+    ctx.ui.notify(`Created ${scope} GSD skill preferences at ${path}`, "info");
+  }
+  
+  await ctx.reload(); // Reload extensions to pick up new prefs
+  ctx.ui.notify(`Edit ${path} to update ${scope} GSD skill preferences.`, "info");
+}
+```
+
+**Template:** `templates/preferences.md` contains all options with comments.
+
+## Validation
+
+Doctor validates preference files:
+
+```typescript
+function validatePreferenceShape(preferences: GSDPreferences): string[] {
+  const issues: string[] = [];
+  const listFields = ["always_use_skills", "prefer_skills", "avoid_skills", "custom_instructions"];
+  
+  for (const field of listFields) {
+    const value = preferences[field];
+    if (value !== undefined && !Array.isArray(value)) {
+      issues.push(`${field} must be a list`);
+    }
+  }
+  
+  if (preferences.skill_rules !== undefined) {
+    if (!Array.isArray(preferences.skill_rules)) {
+      issues.push("skill_rules must be a list");
+    } else {
+      for (const [index, rule] of preferences.skill_rules.entries()) {
+        if (!rule || typeof rule !== "object") {
+          issues.push(`skill_rules[${index}] must be an object`);
+        }
+        if (typeof rule.when !== "string") {
+          issues.push(`skill_rules[${index}].when must be a string`);
+        }
+      }
+    }
+  }
+  
+  return issues;
+}
+```
+
+Run `/gsd doctor audit` to check for issues:
+
+```bash
+/gsd doctor audit
+# [WARN] project | invalid_preferences | always_use_skills must be a list
+```
+
+## Example Configurations
+
+### Cost-Conscious Project
+
+```yaml
+budget_ceiling: 1.00
+model_preferences:
+  execute-task: anthropic/claude-3-haiku-20240307  # Cheapest model
+```
+
+### Research-Heavy Project
+
+```yaml
+model_preferences:
+  research-milestone: anthropic/claude-4.5-sonnet  # Best reasoning
+  plan-milestone: anthropic/claude-4.5-sonnet
+  execute-task: anthropic/claude-3-7-sonnet-20250219  # Faster
+```
+
+### Strict Coding Standards
+
+```yaml
+custom_instructions:
+  - All code must pass ESLint strict mode
+  - Test coverage must be >80%
+  - No console.log (use logger)
+  - All async functions must have error handling
+always_use_skills:
+  - eslint-strict
+  - jest-coverage
+```
+
+### Multi-Environment Deployment
+
+```yaml
+skill_rules:
+  - when: "deployment"
+    use:
+      - docker-compose
+      - aws-cdk
+  - when: "testing"
+    use:
+      - jest-unit
+      - playwright-e2e
+```
+
+## Best Practices
+
+<Tip>
+**Start with global preferences.** Set defaults like `budget_ceiling` and `skill_discovery` globally, then override per-project as needed.
+</Tip>
+
+<Info>
+**Use model_preferences for cost control.** Research/planning units run longer - use cheaper models to save costs.
+</Info>
+
+<Warning>
+**Don't put secrets in preferences.** Use environment variables or `.env` files for API keys, never preferences files.
+</Warning>
+
+## Troubleshooting
+
+### Preferences not applied
+
+**Symptom:** Changed budget_ceiling but auto mode doesn't respect it
+
+**Solution:**
+```bash
+# Check effective prefs
+/gsd prefs status
+
+# Reload extensions
+/reload
+
+# Try again
+/gsd auto
+```
+
+### Skill not found
+
+**Symptom:** `always_use_skills: [custom-tool]` but "Unresolved: custom-tool"
+
+**Solution:**
+```bash
+# Check installed skills
+ls ~/.config/opencode/skills/
+
+# Install the skill first
+# (GSD can't auto-install skills not in the registry)
+
+# Or remove from preferences
+code .gsd/gsd-preferences.md
+```
+
+## Related Commands
+
+- [/gsd doctor](/commands/gsd-doctor) - Validate preferences
+- [/gsd auto](/commands/gsd-auto) - Uses preferences for execution
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Skill Discovery" icon="magnifying-glass" href="/advanced/skill-discovery">
+    Learn how skills are discovered and installed
+  </Card>
+  <Card title="Model Selection" icon="brain" href="/configuration/models">
+    Understand per-unit model preferences
+  </Card>
+</CardGroup>

@@ -1,0 +1,505 @@
+---
+title: Subagent
+description: Delegate tasks to specialized agents with isolated context windows
+---
+
+The Subagent extension allows the main agent to delegate self-contained tasks to specialized subagents, each running in an isolated `pi` process with its own context window, model, and tool configuration.
+
+## Overview
+
+Subagents enable:
+
+- **Isolated context**: Each subagent has a fresh context window
+- **Specialized agents**: Define agents for specific tasks (scout, planner, worker, reviewer)
+- **Parallel execution**: Run multiple agents concurrently
+- **Sequential chains**: Pipeline agents with `{previous}` output passing
+- **Streaming updates**: See subagent progress in real-time
+
+## Execution Modes
+
+The `subagent` tool supports three modes:
+
+### 1. Single Mode
+
+Run one agent for one task:
+
+```typescript
+subagent({
+  agent: "scout",
+  task: "Find all API route handlers in this project"
+})
+```
+
+### 2. Parallel Mode
+
+Run multiple agents concurrently:
+
+```typescript
+subagent({
+  tasks: [
+    { agent: "scout", task: "Find all components in /components" },
+    { agent: "scout", task: "Find all API routes in /app/api" },
+    { agent: "scout", task: "Find all server actions" }
+  ]
+})
+```
+
+### 3. Chain Mode
+
+Run agents sequentially, passing output between steps:
+
+```typescript
+subagent({
+  chain: [
+    {
+      agent: "scout",
+      task: "Find the authentication middleware implementation"
+    },
+    {
+      agent: "planner",
+      task: "Design a plan to add rate limiting to: {previous}"
+    },
+    {
+      agent: "worker",
+      task: "Implement the plan: {previous}"
+    }
+  ]
+})
+```
+
+The `{previous}` placeholder is replaced with the prior agent's output.
+
+## Defining Agents
+
+Agents are defined as Markdown files in:
+
+- **User agents**: `~/.gsd/agent/agents/*.md`
+- **Project agents**: `.gsd/agents/*.md`
+
+Agent file format:
+
+```markdown
+# agent: scout
+
+## model
+anthropic/claude-3-5-sonnet-20241022
+
+## tools
+read,glob,grep
+
+## description
+Finds and catalogs code patterns across the codebase without making changes.
+
+## system
+You are a code scout. Your job is to find and catalog specific patterns,
+functions, or files without modifying anything. Always use glob/grep to
+navigate efficiently. Return findings as a structured list.
+```
+
+### Agent File Schema
+
+| Section | Required | Description |
+|---------|----------|-------------|
+| `# agent: <name>` | Yes | Agent identifier |
+| `## model` | No | Model override (defaults to session model) |
+| `## tools` | No | Comma-separated tool allowlist |
+| `## description` | Yes | Short description for agent selection |
+| `## system` | Yes | System prompt for the agent |
+
+## Built-in Agent Patterns
+
+### Scout Agent
+
+Finds code without changing it:
+
+```markdown
+# agent: scout
+
+## tools
+read,glob,grep,bash
+
+## description
+Finds code patterns and catalogs implementations without modifications
+
+## system
+You are a code scout. Use glob/grep to find patterns efficiently.
+Return findings as a structured markdown list. Never edit files.
+```
+
+### Planner Agent
+
+Designs implementation plans:
+
+```markdown
+# agent: planner
+
+## description
+Analyzes context and creates detailed implementation plans
+
+## system
+You are a planning specialist. Given context, create a detailed
+step-by-step implementation plan. Focus on correctness and edge cases.
+```
+
+### Worker Agent
+
+Implements changes:
+
+```markdown
+# agent: worker
+
+## tools
+read,write,edit,bash
+
+## description
+Implements code changes according to a plan
+
+## system
+You are an implementation specialist. Follow the plan exactly.
+Write tests for your changes. Verify with bash commands.
+```
+
+### Reviewer Agent
+
+Reviews code quality:
+
+```markdown
+# agent: reviewer
+
+## tools
+read,grep,bash
+
+## description
+Reviews code for correctness, style, and best practices
+
+## system
+You are a code reviewer. Check for bugs, style issues, and improvements.
+Provide specific, actionable feedback. Run the code to verify it works.
+```
+
+## Parameters
+
+```typescript
+subagent({
+  // Single mode
+  agent?: string,
+  task?: string,
+  cwd?: string,
+
+  // Parallel mode
+  tasks?: Array<{ agent: string, task: string, cwd?: string }>,
+
+  // Chain mode
+  chain?: Array<{ agent: string, task: string, cwd?: string }>,
+
+  // Common
+  agentScope?: "user" | "project" | "both",  // Default: "both"
+  confirmProjectAgents?: boolean              // Default: false
+})
+```
+
+## Agent Discovery
+
+```bash
+# List available agents
+/subagent
+```
+
+Output:
+
+```
+Available agents (4):
+  scout [user] (claude-3-5-sonnet): Finds code patterns without modifications
+  planner [user]: Analyzes and creates implementation plans
+  worker [project] (claude-3-5-haiku): Implements changes according to plan
+  reviewer [user]: Reviews code for quality and correctness
+```
+
+## Scoping
+
+Control which agent directories are used:
+
+```typescript
+// Use only user agents (~/.gsd/agent/agents/)
+subagent({
+  agent: "scout",
+  task: "Find auth middleware",
+  agentScope: "user"
+})
+
+// Use only project agents (.gsd/agents/)
+subagent({
+  agent: "worker",
+  task: "Implement feature",
+  agentScope: "project",
+  confirmProjectAgents: true  // Prompt before running
+})
+
+// Use both (default)
+subagent({
+  agent: "scout",
+  task: "Find patterns",
+  agentScope: "both"
+})
+```
+
+<Warning>
+  Project-local agents (`.gsd/agents/`) are repo-controlled and can be malicious. Set `confirmProjectAgents: true` to prompt before execution, or use `agentScope: "user"` to ignore them.
+</Warning>
+
+## Example: Scout → Worker Pipeline
+
+```typescript
+// Two-stage chain: find code, then modify it
+subagent({
+  chain: [
+    {
+      agent: "scout",
+      task: "Find all useState hooks in src/components that don't have proper cleanup"
+    },
+    {
+      agent: "worker",
+      task: "Add cleanup functions to the useState hooks identified in: {previous}"
+    }
+  ]
+})
+```
+
+The scout runs first (readonly tools only), finds problematic hooks, then the worker implements fixes based on scout's findings.
+
+## Example: Parallel Research
+
+```typescript
+// Research multiple topics concurrently
+subagent({
+  tasks: [
+    {
+      agent: "scout",
+      task: "Find all database query implementations"
+    },
+    {
+      agent: "scout",
+      task: "Find all API authentication patterns"
+    },
+    {
+      agent: "scout",
+      task: "Find all error handling implementations"
+    }
+  ]
+})
+```
+
+All three scouts run in parallel (up to 4 concurrent by default), each with isolated context.
+
+## Example: Full Pipeline
+
+```typescript
+// Complex 4-stage chain
+subagent({
+  chain: [
+    {
+      agent: "scout",
+      task: "Find the user authentication implementation"
+    },
+    {
+      agent: "planner",
+      task: "Design a plan to add OAuth support to: {previous}"
+    },
+    {
+      agent: "worker",
+      task: "Implement the OAuth integration according to: {previous}"
+    },
+    {
+      agent: "reviewer",
+      task: "Review the OAuth implementation for security issues: {previous}"
+    }
+  ]
+})
+```
+
+Each stage builds on the previous, with full output passed through `{previous}`.
+
+## Usage Stats
+
+Subagent results include detailed usage tracking:
+
+```json
+{
+  "mode": "chain",
+  "results": [
+    {
+      "agent": "scout",
+      "usage": {
+        "input": 15000,
+        "output": 2000,
+        "cacheRead": 50000,
+        "cacheWrite": 15000,
+        "cost": 0.045,
+        "turns": 3
+      },
+      "model": "claude-3-5-sonnet-20241022"
+    }
+  ]
+}
+```
+
+Total usage is aggregated for parallel and chain modes.
+
+## Auto-Retry
+
+Parallel tasks automatically retry once on failure (likely API rate limit):
+
+```typescript
+subagent({
+  tasks: [
+    { agent: "scout", task: "Task 1" },
+    { agent: "scout", task: "Task 2" },  // Fails with 429
+    { agent: "scout", task: "Task 3" }
+  ]
+})
+// Task 2 automatically retries after other tasks complete
+```
+
+## Concurrency Limits
+
+- **Max parallel tasks**: 8
+- **Max concurrency**: 4 (tasks running simultaneously)
+- **Chain tasks**: Always sequential (concurrency = 1)
+
+## Working Directory
+
+By default, subagents run in the same directory as the main agent:
+
+```typescript
+// Override working directory per task
+subagent({
+  agent: "worker",
+  task: "Build the project",
+  cwd: "/path/to/other/project"
+})
+```
+
+## Best Practices
+
+### 1. Use Specialized Agents
+
+<CodeGroup>
+```typescript
+// Good: Specialized agents for each phase
+subagent({
+  chain: [
+    { agent: "scout", task: "Find auth code" },
+    { agent: "worker", task: "Modify {previous}" }
+  ]
+})
+```
+
+```typescript
+// Less effective: Generic agent for everything
+subagent({
+  agent: "generic",
+  task: "Find auth code and modify it"
+})
+```
+</CodeGroup>
+
+### 2. Chain Instead of Monolithic Tasks
+
+<CodeGroup>
+```typescript
+// Good: Break into stages
+subagent({
+  chain: [
+    { agent: "scout", task: "Find pattern" },
+    { agent: "planner", task: "Design fix for {previous}" },
+    { agent: "worker", task: "Implement {previous}" }
+  ]
+})
+```
+
+```typescript
+// Less effective: One giant task
+subagent({
+  agent: "worker",
+  task: "Find auth pattern, design a fix, and implement it"
+})
+```
+</CodeGroup>
+
+### 3. Parallelize Independent Work
+
+<CodeGroup>
+```typescript
+// Good: Parallel for independent tasks
+subagent({
+  tasks: [
+    { agent: "scout", task: "Find API routes" },
+    { agent: "scout", task: "Find components" },
+    { agent: "scout", task: "Find tests" }
+  ]
+})
+```
+
+```typescript
+// Wasteful: Sequential when parallel is safe
+subagent({ agent: "scout", task: "Find API routes" })
+subagent({ agent: "scout", task: "Find components" })
+subagent({ agent: "scout", task: "Find tests" })
+```
+</CodeGroup>
+
+### 4. Limit Agent Tools
+
+```markdown
+# agent: scout
+
+## tools
+read,glob,grep  # No write/edit — scout is readonly
+```
+
+Restricting tools prevents agents from making unintended changes.
+
+## Troubleshooting
+
+### Unknown Agent Error
+
+```
+Unknown agent: "missing". Available agents: scout, worker, planner
+```
+
+**Solution:** Check agent name spelling and run `/subagent` to list available agents.
+
+### Agent File Not Found
+
+**Solution:** Verify agent file exists at `~/.gsd/agent/agents/<name>.md` or `.gsd/agents/<name>.md`
+
+### Chain Stops Early
+
+```
+Chain stopped at step 2 (planner): Error: ...
+```
+
+**Cause:** Agent failed or was aborted.
+
+**Solution:** Check agent's error message in output. Fix and re-run.
+
+### Model Override Not Working
+
+Agents inherit the session model by default. Override in agent file:
+
+```markdown
+## model
+anthropic/claude-3-5-haiku-20241022
+```
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="Background Shell" icon="terminal" href="/extensions/background-shell">
+    For running build/test processes in parallel
+  </Card>
+  
+  <Card title="Browser Tools" icon="browser" href="/extensions/browser-tools">
+    For parallel browser testing workflows
+  </Card>
+</CardGroup>

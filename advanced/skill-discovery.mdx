@@ -1,0 +1,302 @@
+---
+title: Skill Discovery
+description: Dynamic skill detection and system prompt injection
+---
+
+# Skill Discovery
+
+GSD's skill discovery system detects skills installed during auto-mode and injects them into the system prompt, making them immediately available without requiring a reload.
+
+## How It Works
+
+Skills are discovered by comparing the current skills directory against a snapshot taken at auto-mode start:
+
+```typescript src/resources/extensions/gsd/skill-discovery.ts
+const SKILLS_DIR = join(getAgentDir(), "skills")
+
+/** Snapshot of skill names at auto-mode start */
+let baselineSkills: Set<string> | null = null
+
+export function snapshotSkills(): void {
+  baselineSkills = new Set(listSkillDirs())
+}
+
+export function detectNewSkills(): DiscoveredSkill[] {
+  if (!baselineSkills) return []
+
+  const current = listSkillDirs()
+  const newSkills: DiscoveredSkill[] = []
+
+  for (const dir of current) {
+    if (baselineSkills.has(dir)) continue
+
+    const skillMdPath = join(SKILLS_DIR, dir, "SKILL.md")
+    if (!existsSync(skillMdPath)) continue
+
+    const meta = parseSkillFrontmatter(skillMdPath)
+    if (meta) {
+      newSkills.push({
+        name: meta.name || dir,
+        description: meta.description || `Skill: ${dir}`,
+        location: skillMdPath,
+      })
+    }
+  }
+
+  return newSkills
+}
+```
+
+## Snapshot Lifecycle
+
+The snapshot is managed by auto-mode:
+
+```typescript src/resources/extensions/gsd/auto.ts
+export async function startAuto(
+  ctx: ExtensionCommandContext,
+  pi: ExtensionAPI,
+  base: string,
+  verboseMode: boolean,
+  options?: { step?: boolean },
+): Promise<void> {
+  // ... initialization ...
+
+  // Snapshot installed skills so we can detect new ones after research
+  if (resolveSkillDiscoveryMode() !== "off") {
+    snapshotSkills()
+  }
+
+  // ... dispatch first unit ...
+}
+
+export async function stopAuto(ctx?: ExtensionContext, pi?: ExtensionAPI): Promise<void> {
+  // ... cleanup ...
+  clearSkillSnapshot()
+  // ...
+}
+```
+
+**Why snapshot?**
+- The research units (`research-milestone`, `research-slice`) install skills via the WebFetch tool
+- Later units (planning, execution) need to see the newly installed skills
+- Without discovery, they'd need to reload extensions (breaking the session)
+
+## System Prompt Injection
+
+Discovered skills are injected into the system prompt via the `before_agent_start` hook:
+
+```typescript src/resources/extensions/gsd/index.ts
+const beforeAgentStart: ExtensionBeforeAgentStartHandler = (ctx) => {
+  const newSkills = detectNewSkills()
+  if (newSkills.length > 0) {
+    const skillsXml = formatSkillsXml(newSkills)
+    ctx.appendSystemPrompt(skillsXml)
+  }
+}
+
+context.registerExtension({
+  name: "gsd",
+  beforeAgentStart,
+  // ...
+})
+```
+
+The `appendSystemPrompt` method adds content to the system prompt for the next agent turn, making the skills visible to the LLM without breaking the session.
+
+## XML Format
+
+Discovered skills are formatted as an XML block matching Pi's `<available_skills>` format:
+
+```typescript src/resources/extensions/gsd/skill-discovery.ts
+export function formatSkillsXml(skills: DiscoveredSkill[]): string {
+  if (skills.length === 0) return ""
+
+  const entries = skills.map(s => `  <skill>
+    <name>${escapeXml(s.name)}</name>
+    <description>${escapeXml(s.description)}</description>
+    <location>${escapeXml(s.location)}</location>
+  </skill>`).join("\n")
+
+  return `\n<newly_discovered_skills>
+The following skills were installed during this auto-mode session.
+Use the read tool to load a skill's file when the task matches its description.
+
+${entries}
+</newly_discovered_skills>`
+}
+```
+
+**Example output:**
+
+```xml
+<newly_discovered_skills>
+The following skills were installed during this auto-mode session.
+Use the read tool to load a skill's file when the task matches its description.
+
+  <skill>
+    <name>mintlify</name>
+    <description>Comprehensive reference for building Mintlify documentation sites</description>
+    <location>/home/user/.gsd/agent/skills/mintlify/SKILL.md</location>
+  </skill>
+  <skill>
+    <name>doc-author</name>
+    <description>Write, edit, and maintain documentation</description>
+    <location>/home/user/.gsd/agent/skills/doc-author/SKILL.md</location>
+  </skill>
+</newly_discovered_skills>
+```
+
+The LLM sees this block and knows it can use the `read` tool to load the full skill content when needed.
+
+## Skill Metadata
+
+Skills are identified by parsing the frontmatter of their `SKILL.md` file:
+
+```typescript src/resources/extensions/gsd/skill-discovery.ts
+function parseSkillFrontmatter(path: string): { name?: string; description?: string } | null {
+  try {
+    const content = readFileSync(path, "utf-8")
+    const match = content.match(/^---\n([\s\S]*?)\n---/)
+    if (!match) return null
+
+    const fm = match[1]
+    const result: { name?: string; description?: string } = {}
+
+    const nameMatch = fm.match(/^name:\s*(.+)$/m)
+    if (nameMatch) result.name = nameMatch[1].trim()
+
+    const descMatch = fm.match(/^description:\s*(.+)$/m)
+    if (descMatch) result.description = descMatch[1].trim()
+
+    return result
+  } catch {
+    return null
+  }
+}
+```
+
+**Example frontmatter:**
+
+```markdown
+---
+name: mintlify
+description: Comprehensive reference for building Mintlify documentation sites. Use when creating pages, configuring docs.json, adding components, setting up navigation, or working with API references.
+---
+```
+
+## Configuration
+
+Skill discovery can be toggled via GSD preferences:
+
+```typescript src/resources/extensions/gsd/preferences.ts
+export interface GSDPreferences {
+  /** Skill discovery mode: "auto" | "off" */
+  skill_discovery?: "auto" | "off"
+}
+
+export function resolveSkillDiscoveryMode(): "auto" | "off" {
+  const prefs = loadEffectiveGSDPreferences()?.preferences
+  return prefs?.skill_discovery ?? "auto"
+}
+```
+
+**Why have an off switch?**
+- Some users prefer explicit extension loading via `--extension` flag
+- Large skill directories can slow down snapshot comparison
+- Debugging: disable to rule out skill discovery as a source of issues
+
+## Integration with Research Units
+
+Research units install skills by:
+
+1. Using the `WebFetch` tool to download documentation
+2. Identifying skill-worthy content (comprehensive guides, API references)
+3. Creating a `~/.gsd/agent/skills/{name}/SKILL.md` file with frontmatter and content
+
+The next unit dispatch detects the new skill and injects it into the system prompt.
+
+**Example flow:**
+
+```
+1. research-milestone → Installs "mintlify" skill
+2. plan-milestone starts → before_agent_start fires
+3. detectNewSkills() finds "mintlify"
+4. formatSkillsXml() creates XML block
+5. ctx.appendSystemPrompt(skillsXml)
+6. LLM sees skill in system prompt, can use it immediately
+```
+
+## Why Not Just Reload?
+
+You might wonder: why not just reload extensions instead of injecting into the system prompt?
+
+**Problems with reloading:**
+- Breaks the session (loses conversation context and prompt cache)
+- Requires creating a new session mid-auto-mode (complex state management)
+- Slow (full extension scan and jiti compilation)
+
+**Benefits of injection:**
+- Zero disruption to the session
+- Skills are available immediately in the next agent turn
+- Works with Pi's existing `<available_skills>` pattern
+- Preserves prompt cache (only appends new content)
+
+## Snapshot Clearing
+
+The snapshot is cleared when auto-mode stops:
+
+```typescript src/resources/extensions/gsd/skill-discovery.ts
+export function clearSkillSnapshot(): void {
+  baselineSkills = null
+}
+```
+
+This ensures:
+- Memory is released
+- Next auto-mode session starts with a fresh snapshot
+- Skills installed outside auto-mode are not detected as "new" on the next run
+
+## API Reference
+
+### Functions
+
+<ResponseField name="snapshotSkills" type="() => void">
+  Snapshot the current skills directory. Call at auto-mode start.
+</ResponseField>
+
+<ResponseField name="clearSkillSnapshot" type="() => void">
+  Clear the snapshot. Call when auto-mode stops.
+</ResponseField>
+
+<ResponseField name="hasSkillSnapshot" type="() => boolean">
+  Check if a snapshot is active (auto-mode is running with discovery).
+</ResponseField>
+
+<ResponseField name="detectNewSkills" type="() => DiscoveredSkill[]">
+  Detect skills installed since the snapshot was taken. Returns skill metadata for any new skills found.
+</ResponseField>
+
+<ResponseField name="formatSkillsXml" type="(skills: DiscoveredSkill[]) => string">
+  Format discovered skills as an XML block matching Pi's `<available_skills>` format. Returns empty string if no skills.
+</ResponseField>
+
+### Types
+
+```typescript
+export interface DiscoveredSkill {
+  name: string          // e.g. "mintlify"
+  description: string   // e.g. "Comprehensive reference for building..."
+  location: string      // e.g. "/home/user/.gsd/agent/skills/mintlify/SKILL.md"
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Dashboard" icon="chart-line" href="/advanced/dashboard">
+    Learn about the auto-mode progress dashboard
+  </Card>
+  <Card title="Architecture Deep Dive" icon="building" href="/advanced/architecture-deep-dive">
+    Understand the loader pattern and bootstrapping process
+  </Card>
+</CardGroup>

@@ -1,0 +1,350 @@
+---
+title: "PLAN Format"
+description: "Slice plan structure with tasks and must-haves"
+---
+
+## Overview
+
+The PLAN file (e.g. `S01-PLAN.md`) breaks a slice into tasks. Each task is one context-window-sized unit of work.
+
+## Structure
+
+```markdown
+# S02: Checkout Flow
+
+**Goal:** Implement Stripe checkout session creation and success handling
+
+**Demo:** User can click "Subscribe", enter payment details, and see confirmation
+
+## Must-Haves
+
+- [ ] Checkout endpoint creates Stripe session
+- [ ] Success page displays subscription details
+- [ ] Cancel page allows retry
+- [ ] Subscription stored in database after payment
+
+## Tasks
+
+- [ ] **T01: Database Schema** `est:30m`
+  Create subscription model and migration
+  - Files: `migrations/003_subscriptions.sql`, `models/subscription.ts`
+  - Verify: Migration runs without errors
+
+- [ ] **T02: Checkout Endpoint** `est:1h`
+  POST /checkout creates Stripe session and returns URL
+  - Files: `routes/checkout.ts`, `services/stripe.ts`
+  - Verify: curl test returns valid session URL
+
+- [x] **T03: Success Handler** `est:45m`
+  GET /checkout/success retrieves session and creates subscription
+  - Files: `routes/checkout.ts`, `controllers/subscription.ts`
+  - Verify: End-to-end test with Stripe test mode
+
+- [ ] **T04: Cancel Handler** `est:20m`
+  GET /checkout/cancel displays retry UI
+  - Files: `routes/checkout.ts`, `views/checkout-cancel.tsx`
+  - Verify: Manual browser test
+
+## Files Likely Touched
+
+- `src/routes/checkout.ts`
+- `src/services/stripe.ts`
+- `src/models/subscription.ts`
+- `src/controllers/subscription.ts`
+- `migrations/003_subscriptions.sql`
+- `src/views/checkout-success.tsx`
+- `src/views/checkout-cancel.tsx`
+- `tests/checkout.test.ts`
+```
+
+## Fields
+
+### Header
+
+<ParamField path="Title" type="string" required>
+  Slice ID and title (e.g. "S02: Checkout Flow")
+</ParamField>
+
+<ParamField path="Goal" type="string" required>
+  One-sentence statement of what this slice accomplishes
+</ParamField>
+
+<ParamField path="Demo" type="string" required>
+  Concrete demo scenario showing the slice working
+</ParamField>
+
+### Must-Haves Section
+
+<ParamField path="Must-Haves" type="list" required>
+  Checkbox list of required functionality for this slice
+</ParamField>
+
+Each must-have is a checkbox item:
+
+```markdown
+- [ ] Feature or capability description
+```
+
+Must-haves are **acceptance criteria** — all must be satisfied for the slice to be considered complete.
+
+### Tasks Section
+
+<ParamField path="Tasks" type="list" required>
+  Ordered list of implementation tasks
+</ParamField>
+
+Each task entry follows this format:
+
+```markdown
+- [ ] **T01: Task Title** `est:duration`
+  Brief description of what this task does
+  - Files: comma-separated list of files
+  - Verify: how to verify the task is complete
+```
+
+#### Task Fields
+
+<ParamField path="checkbox" type="boolean" required>
+  `[ ]` for incomplete, `[x]` for complete
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Task ID (T01, T02, etc.)
+</ParamField>
+
+<ParamField path="title" type="string" required>
+  Brief, clear title for the task
+</ParamField>
+
+<ParamField path="estimate" type="string">
+  Time estimate in minutes or hours (e.g. "30m", "1h", "2h")
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  One or more lines describing what the task does
+</ParamField>
+
+<ParamField path="files" type="list">
+  Comma-separated list of files this task will modify
+</ParamField>
+
+<ParamField path="verify" type="string">
+  How to verify the task is complete (test command, manual check, etc.)
+</ParamField>
+
+### Files Likely Touched Section
+
+<ParamField path="Files Likely Touched" type="list">
+  Bulleted list of files that will be modified during this slice
+</ParamField>
+
+This section helps agents understand the scope and find relevant context.
+
+## TypeScript Interface
+
+```typescript
+export interface SlicePlan {
+  id: string;          // e.g. "S01"
+  title: string;       // from the H1
+  goal: string;
+  demo: string;
+  mustHaves: string[]; // top-level must-have bullet points
+  tasks: TaskPlanEntry[];
+  filesLikelyTouched: string[];
+}
+
+export interface TaskPlanEntry {
+  id: string;          // e.g. "T01"
+  title: string;       // e.g. "Database Schema"
+  description: string;
+  done: boolean;
+  estimate: string;    // e.g. "30m", "2h" — informational only
+  files?: string[];    // e.g. ["types.ts", "files.ts"]
+  verify?: string;     // e.g. "run tests"
+}
+```
+
+## Parsing
+
+GSD parses PLAN files using the `parsePlan()` function:
+
+1. **Extract header**: H1 for ID/title, bold fields for goal/demo
+2. **Parse must-haves**: Section "Must-Haves" → checkbox bullet list
+3. **Parse tasks**: Section "Tasks" → checkbox items with inline metadata
+4. **Parse files**: Section "Files Likely Touched" → bullet list
+
+### Task Parsing Pattern
+
+```typescript
+const cbMatch = line.match(/^-\s+\[([xX ])\]\s+\*\*(\w+):\s+(.+?)\*\*\s*(.*)/);
+```
+
+Extracts:
+- Checkbox state (`[x]` or `[ ]`)
+- Task ID (`T01`)
+- Title (`Database Schema`)
+- Estimate (`est:30m`)
+
+### Subline Parsing
+
+Lines immediately following the task header are parsed for metadata:
+
+```typescript
+const filesMatch = line.match(/^\s*-\s+Files:\s*(.*)/);
+const verifyMatch = line.match(/^\s*-\s+Verify:\s*(.*)/);
+```
+
+Other lines become part of the task description.
+
+## Example: Full PLAN
+
+```markdown
+# S05: Reconnection Logic
+
+**Goal:** Implement robust WebSocket reconnection with exponential backoff
+
+**Demo:** Kill server, watch client auto-reconnect within 5 seconds with backoff
+
+## Must-Haves
+
+- [ ] Client detects disconnect events
+- [ ] Exponential backoff between reconnect attempts
+- [ ] Max retry limit before giving up
+- [ ] UI indicator shows connection state
+- [ ] Missed events recovered on reconnect
+
+## Tasks
+
+- [ ] **T01: Reconnection Hook** `est:45m`
+  Create React hook for managing reconnection state
+  - Files: `hooks/useSocketReconnect.ts`, `types/socket.ts`
+  - Verify: Unit tests pass
+
+- [ ] **T02: Exponential Backoff** `est:30m`
+  Implement backoff algorithm: 1s, 2s, 4s, 8s, max 30s
+  - Files: `utils/backoff.ts`
+  - Verify: Test with mock timers
+
+- [ ] **T03: Connection State UI** `est:1h`
+  Add indicator showing connected/disconnected/reconnecting
+  - Files: `components/ConnectionStatus.tsx`, `styles/connection.css`
+  - Verify: Manual test by stopping server
+
+- [ ] **T04: Event Recovery** `est:1h30m`
+  On reconnect, fetch missed events and replay
+  - Files: `services/eventRecovery.ts`, `api/events.ts`
+  - Verify: Integration test with event gap
+
+- [ ] **T05: Max Retry Logic** `est:20m`
+  Give up after 10 failed attempts, show error UI
+  - Files: `hooks/useSocketReconnect.ts`, `components/ConnectionError.tsx`
+  - Verify: Test with server permanently down
+
+## Files Likely Touched
+
+- `src/hooks/useSocketReconnect.ts`
+- `src/utils/backoff.ts`
+- `src/components/ConnectionStatus.tsx`
+- `src/components/ConnectionError.tsx`
+- `src/services/eventRecovery.ts`
+- `src/api/events.ts`
+- `src/types/socket.ts`
+- `src/styles/connection.css`
+- `tests/reconnection.test.ts`
+- `tests/backoff.test.ts`
+```
+
+## The Iron Rule
+
+<Warning>
+  **A task must fit in one context window.** If it can't, it's two tasks.
+</Warning>
+
+When planning:
+- Estimate context requirements for each task
+- Split large tasks (refactoring, multi-file features) into smaller units
+- Each task should be completable in 30min–2h of agent time
+- Use subtasks (Files, Verify) to keep scope clear
+
+## Must-Haves vs Tasks
+
+**Must-Haves** define **what** needs to work when the slice is done.
+
+**Tasks** define **how** the work is broken down.
+
+A single must-have might span multiple tasks:
+
+```markdown
+## Must-Haves
+- [ ] Checkout endpoint creates Stripe session
+
+## Tasks
+- [ ] **T01: Database Schema** — subscription model
+- [ ] **T02: Checkout Endpoint** — creates session
+- [ ] **T03: Success Handler** — finalizes subscription
+```
+
+Must-haves are verified during UAT. All tasks must be complete before UAT runs.
+
+## Task Verification
+
+Each task should specify a **Verify** line:
+
+<ParamField path="Verify" type="string">
+  Command, test, or manual check to verify completion
+</ParamField>
+
+Examples:
+- `npm test` — run test suite
+- `curl http://localhost:3000/checkout` — manual API test
+- `Start server and click checkout button` — manual UI test
+- `Migration runs without errors` — check migration
+
+<Tip>
+  Verification should be fast (under 5 minutes). Save deep integration testing for UAT.
+</Tip>
+
+## Editing Guidelines
+
+### During Planning
+
+- **Break down tasks** until each fits in one context window
+- **Order tasks** by dependency (schema before API, API before UI)
+- **Specify files** to guide agent context loading
+- **Write clear verify steps** so agents know when they're done
+
+### During Execution
+
+- **Check off tasks** as they complete
+- **Do not reorder** tasks (breaks state tracking)
+- **Do not change IDs** (breaks file references)
+- **Add must-haves** if new acceptance criteria emerge
+- **Update estimates** if tasks take longer than expected (for future planning)
+
+### Must-Haves Management
+
+Must-haves can be checked off during or after execution:
+
+```markdown
+- [x] Checkout endpoint creates Stripe session
+- [ ] Success page displays subscription details
+```
+
+All must-haves should be checked before writing the slice SUMMARY.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="ROADMAP Format" icon="map" href="/api/roadmap-format">
+    Milestone roadmap with slices
+  </Card>
+  <Card title="SUMMARY Format" icon="file-lines" href="/api/summary-format">
+    Task summary after completion
+  </Card>
+  <Card title="State Files" icon="database" href="/api/state-files">
+    CONTINUE.md for interrupted tasks
+  </Card>
+  <Card title=".gsd/ Directory" icon="folder-tree" href="/api/gsd-directory">
+    Complete directory structure
+  </Card>
+</CardGroup>

@@ -1,0 +1,385 @@
+---
+title: /gsd status
+description: View project progress and execution state
+---
+
+The `/gsd status` command opens a full-screen dashboard showing milestone progress, slice completion, and recent activity.
+
+## Syntax
+
+```bash
+/gsd status
+```
+
+## Dashboard Layout
+
+The status dashboard shows:
+
+1. **Active milestone** - Current M### with title and progress
+2. **Active slice** - Current S## with title and task completion
+3. **Phase indicator** - Current execution phase (planning, executing, etc.)
+4. **Milestone registry** - All milestones with status icons
+5. **Requirements summary** - Active, validated, deferred, out-of-scope counts
+6. **Recent decisions** - Latest architectural decisions
+7. **Blockers** - Active issues preventing progress
+8. **Next action** - What will happen next in auto/step mode
+
+## Example Output
+
+```
+╭─────────────────────── GSD DASHBOARD ───────────────────────╮
+│                                                            │
+│  Active Milestone                                          │
+│  M001: Build authentication system                         │
+│  ████████████░░░░░░░░  2/3 slices done                    │
+│                                                            │
+│  Active Slice                                              │
+│  S03: Add session management                               │
+│  ███████████████░░░░░  3/4 tasks done                     │
+│                                                            │
+│  Phase: executing                                          │
+│  Next: Execute T004 - Add token refresh logic              │
+│                                                            │
+│──────────────────────────────────────────────────────────│
+│                                                            │
+│  Milestone Registry                                        │
+│                                                            │
+│  ● M001: Build authentication system (active)             │
+│  ○ M002: Implement task management API (queued)           │
+│  ○ M003: Add real-time notifications (queued)             │
+│                                                            │
+│──────────────────────────────────────────────────────────│
+│                                                            │
+│  Requirements                                              │
+│  5 active · 3 validated · 2 deferred · 0 out of scope   │
+│                                                            │
+│  Recent Decisions                                          │
+│  • Use JWT for session tokens (not Redis)                │
+│  • OAuth2 with Passport.js (avoid custom impl)            │
+│  • PostgreSQL for user data (not MongoDB)                 │
+│                                                            │
+│  Blockers: None                                            │
+│                                                            │
+│──────────────────────────────────────────────────────────│
+│                                                            │
+│  esc close                        /gsd auto continue      │
+│                                                            │
+╰──────────────────────────────────────────────────────────╯
+```
+
+## State Derivation
+
+The dashboard reads `.gsd/STATE.md` (auto-generated):
+
+```markdown
+# GSD State
+
+**Active Milestone:** M001 — Build authentication system
+**Active Slice:** S03 — Add session management
+**Phase:** executing
+**Requirements Status:** 5 active · 3 validated · 2 deferred · 0 out of scope
+
+## Milestone Registry
+
+- 🔄 **M001:** Build authentication system
+- ⬜ **M002:** Implement task management API
+- ⬜ **M003:** Add real-time notifications
+
+## Recent Decisions
+
+- Use JWT for session tokens (not Redis)
+- OAuth2 with Passport.js (avoid custom impl)
+- PostgreSQL for user data (not MongoDB)
+
+## Blockers
+
+- None
+
+## Next Action
+
+Execute T004: Add token refresh logic
+```
+
+The dashboard renders this in a TUI overlay.
+
+## Implementation
+
+The status command is implemented in `commands.ts:178`:
+
+```typescript
+async function handleStatus(ctx: ExtensionCommandContext): Promise<void> {
+  const basePath = process.cwd();
+  const state = await deriveState(basePath);
+
+  if (state.registry.length === 0) {
+    ctx.ui.notify("No GSD milestones found. Run /gsd to start.", "info");
+    return;
+  }
+
+  await ctx.ui.custom<void>(
+    (tui, theme, _kb, done) => {
+      return new GSDDashboardOverlay(tui, theme, () => done());
+    },
+    {
+      overlay: true,
+      overlayOptions: {
+        width: "70%",
+        minWidth: 60,
+        maxHeight: "90%",
+        anchor: "center",
+      },
+    },
+  );
+}
+```
+
+## Dashboard Overlay
+
+The `GSDDashboardOverlay` class in `dashboard-overlay.ts` handles rendering:
+
+```typescript
+export class GSDDashboardOverlay {
+  constructor(
+    private tui: TUI,
+    private theme: Theme,
+    private onClose: () => void,
+  ) {}
+
+  render(width: number, height: number): string[] {
+    const state = deriveStateSync(process.cwd());
+    const lines: string[] = [];
+
+    // Title bar
+    lines.push(this.renderTitleBar(width));
+    lines.push("");
+
+    // Active milestone
+    if (state.activeMilestone) {
+      lines.push(...this.renderMilestone(state.activeMilestone, width));
+      lines.push("");
+    }
+
+    // Active slice
+    if (state.activeSlice) {
+      lines.push(...this.renderSlice(state.activeSlice, width));
+      lines.push("");
+    }
+
+    // Phase and next action
+    lines.push(this.renderPhase(state, width));
+    lines.push("");
+
+    // Separator
+    lines.push(this.theme.fg("dim", "─".repeat(width - 4)));
+    lines.push("");
+
+    // Milestone registry
+    lines.push(...this.renderRegistry(state.registry, width));
+    lines.push("");
+
+    // Requirements summary
+    if (state.requirements) {
+      lines.push(this.renderRequirements(state.requirements, width));
+      lines.push("");
+    }
+
+    // Recent decisions
+    if (state.recentDecisions.length > 0) {
+      lines.push(...this.renderDecisions(state.recentDecisions, width));
+      lines.push("");
+    }
+
+    // Blockers
+    lines.push(this.renderBlockers(state.blockers, width));
+    lines.push("");
+
+    // Footer
+    lines.push(this.theme.fg("dim", "─".repeat(width - 4)));
+    lines.push("");
+    lines.push(this.renderFooter(width));
+
+    return lines;
+  }
+
+  handleInput(data: string): void {
+    if (isKeyRelease(data)) return;
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.enter)) {
+      this.onClose();
+    }
+  }
+}
+```
+
+## Keyboard Shortcuts
+
+- **Escape** - Close dashboard
+- **Enter** - Close dashboard
+- **Ctrl+Alt+G** - Open dashboard from anywhere (global shortcut)
+
+The global shortcut is registered in `index.ts`:
+
+```typescript
+pi.registerShortcut("ctrl+alt+g", {
+  description: "Open GSD dashboard",
+  handler: async (ctx) => {
+    await fireStatusViaCommand(ctx as ExtensionCommandContext);
+  },
+});
+```
+
+## State File Updates
+
+The dashboard always shows live state. `STATE.md` is automatically regenerated:
+
+1. **After each unit** - Auto mode rebuilds STATE.md
+2. **After doctor fixes** - Doctor writes updated STATE.md
+3. **On manual edits** - Run `/gsd doctor fix` to rebuild
+
+```typescript
+export async function rebuildState(basePath: string): Promise<void> {
+  const state = await deriveState(basePath);
+  const path = resolveGsdRootFile(basePath, "STATE");
+  await saveFile(path, buildStateMarkdown(state));
+}
+```
+
+## Progress Calculation
+
+### Milestone Progress
+
+Calculated from roadmap:
+
+```typescript
+const roadmap = parseRoadmap(roadmapContent);
+const doneSlices = roadmap.slices.filter(s => s.done).length;
+const totalSlices = roadmap.slices.length;
+const progress = totalSlices > 0 ? doneSlices / totalSlices : 0;
+```
+
+### Slice Progress
+
+Calculated from plan:
+
+```typescript
+const plan = parsePlan(planContent);
+const doneTasks = plan.tasks.filter(t => t.done).length;
+const totalTasks = plan.tasks.length;
+const progress = totalTasks > 0 ? doneTasks / totalTasks : 0;
+```
+
+## Requirements Summary
+
+Parsed from `REQUIREMENTS.md`:
+
+```typescript
+export interface RequirementsSummary {
+  active: number;       // Status: Active
+  validated: number;    // Status: Validated
+  deferred: number;     // Status: Deferred
+  outOfScope: number;   // Status: Out of scope
+}
+
+function parseRequirementsSummary(content: string): RequirementsSummary {
+  const blocks = content.split(/^###\s+/m).slice(1);
+  const summary = { active: 0, validated: 0, deferred: 0, outOfScope: 0 };
+  
+  for (const block of blocks) {
+    const status = block.match(/^-\s+Status:\s+(.+)$/m)?.[1]?.trim().toLowerCase();
+    if (status === "active") summary.active++;
+    else if (status === "validated") summary.validated++;
+    else if (status === "deferred") summary.deferred++;
+    else if (status === "out of scope") summary.outOfScope++;
+  }
+  
+  return summary;
+}
+```
+
+See [Requirements](/api/project-files) for the full specification.
+
+## Use Cases
+
+### Quick Progress Check
+
+```bash
+# Check how far along M001 is
+/gsd status
+
+# See: 2/3 slices done, currently on S03 with 3/4 tasks complete
+```
+
+### Debugging Stuck Auto Mode
+
+```bash
+# Auto mode seems stuck, check state
+/gsd status
+
+# Dashboard shows: Phase: blocked, Blockers: Missing API key
+# Fix the blocker, then /gsd auto
+```
+
+### Reviewing Decisions
+
+```bash
+# What architectural decisions were made?
+/gsd status
+
+# Dashboard shows recent decisions from DECISIONS.md
+```
+
+## Best Practices
+
+<Tip>
+**Use Ctrl+Alt+G during auto mode.** You can open the dashboard without stopping auto-mode to check progress.
+</Tip>
+
+<Info>
+**Check blockers regularly.** If auto mode stops unexpectedly, `/gsd status` shows why (usually a blocker was discovered).
+</Info>
+
+## Troubleshooting
+
+### Dashboard shows outdated info
+
+**Symptom:** Status doesn't reflect recent changes
+
+**Solution:**
+```bash
+# Rebuild STATE.md
+/gsd doctor fix
+
+# Check again
+/gsd status
+```
+
+### No milestones shown
+
+**Symptom:** "No GSD milestones found"
+
+**Solution:**
+```bash
+# Start a new project
+/gsd discuss
+
+# Or check if you're in the right directory
+pwd
+ls .gsd/
+```
+
+## Related Commands
+
+- [/gsd](/commands/gsd) - Main command
+- [/gsd auto](/commands/gsd-auto) - Auto mode (uses same state)
+- [/gsd queue](/commands/gsd-queue) - Detailed milestone queue
+- [/gsd doctor](/commands/gsd-doctor) - Fix state inconsistencies
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="State Machine" icon="diagram-project" href="/advanced/state-management">
+    Understand how phases work
+  </Card>
+  <Card title="Requirements" icon="clipboard-list" href="/api/project-files">
+    Learn about requirement tracking
+  </Card>
+</CardGroup>

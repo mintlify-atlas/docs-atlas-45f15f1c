@@ -1,97 +1,162 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Get Shit Done. Autonomously."
+description: "A powerful meta-prompting, context engineering and spec-driven development system that enables agents to work for long periods of time autonomously without losing track of the big picture."
 ---
 
-## Setting up
+<div className="flex flex-col items-center text-center py-12 px-4">
+  <div className="mb-8">
+    <h1 className="text-5xl font-bold mb-4" style={{color: '#cfd0d2'}}>
+      GSD 2
+    </h1>
+    <p className="text-xl text-gray-300 max-w-3xl mx-auto">
+      The evolution of Get Shit Done — now a real coding agent. One command. Walk away. Come back to a built project with clean git history.
+    </p>
+  </div>
+  
+  <div className="flex gap-4 mb-12">
+    <a href="/quickstart" className="px-6 py-3 rounded-md font-semibold" style={{backgroundColor: '#238636', color: '#ffffff'}}>
+      Get Started
+    </a>
+    <a href="https://github.com/gsd-build/gsd-2" className="px-6 py-3 rounded-md font-semibold border" style={{borderColor: '#848c8e', color: '#ffffff'}}>
+      View on GitHub
+    </a>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+```bash
+npm install -g gsd-pi
+```
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
+## What Makes GSD Different
+
+GSD isn't a prompt framework — it's a TypeScript application that controls the agent session. Built on the Pi SDK, it gives you direct access to the agent harness itself.
+
+<CardGroup cols={2}>
+  <Card title="Fresh Context Per Task" icon="rotate">
+    Every task gets a clean 200k-token context window. No accumulated garbage. No degraded quality.
+  </Card>
+  <Card title="True Automation" icon="robot">
+    State machine driven by files on disk. Walk away and come back to completed work.
+  </Card>
+  <Card title="Crash Recovery" icon="life-ring">
+    Lock files track current work. Sessions die? Resume with full context from disk state.
+  </Card>
+  <Card title="Cost Tracking" icon="dollar-sign">
+    Per-unit token usage and cost breakdown by phase, slice, and model with budget ceilings.
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<CardGroup cols={3}>
+  <Card title="Autonomous Execution" icon="play" href="/guide/auto-mode">
+    Multi-task execution with fresh context per task
+  </Card>
+  <Card title="Git Strategy" icon="code-branch" href="/concepts/git-strategy">
+    Automated branch-per-slice with squash merge
+  </Card>
+  <Card title="Timeout Supervision" icon="clock" href="/configuration/timeouts">
+    Soft/idle/hard timeouts with recovery steering
+  </Card>
+  <Card title="Multi-Provider Support" icon="server" href="/configuration/providers">
+    20+ LLM providers with per-phase model selection
+  </Card>
+  <Card title="Real-Time Dashboard" icon="chart-line" href="/advanced/dashboard">
+    Progress tracking and cost projections
+  </Card>
+  <Card title="Built-in Extensions" icon="puzzle-piece" href="/extensions/overview">
+    Browser automation, web search, and more
+  </Card>
+</CardGroup>
+
+## The Iron Rule
+
+GSD structures work into a hierarchy:
+
+```
+Milestone  →  a shippable version (4-10 slices)
+  Slice    →  one demoable vertical capability (1-7 tasks)
+    Task   →  one context-window-sized unit of work
+```
+
+**A task must fit in one context window.** If it can't, it's two tasks.
+
+## Quick Start
+
+<Steps>
+  <Step title="Install GSD">
+    Install globally via npm
+    
+    ```bash
+    npm install -g gsd-pi
+    ```
+  </Step>
+  
+  <Step title="Log in to a provider">
+    Choose from 20+ providers — Anthropic, OpenAI, Google, OpenRouter, GitHub Copilot, and more
+    
+    ```bash
+    gsd
+    /login
+    ```
+  </Step>
+  
+  <Step title="Run GSD">
+    Start in step mode or go full autonomous
+    
+    ```bash
+    # Step mode - one unit at a time
+    gsd
+    /gsd
+    
+    # Autonomous mode - walk away
+    gsd
+    /gsd auto
+    ```
+  </Step>
+</Steps>
+
+## Two Ways to Work
+
+<CardGroup cols={2}>
+  <Card title="Step Mode" icon="shoe-prints" href="/guide/step-mode">
+    Execute one unit at a time, pausing between each with a wizard showing progress. You stay in control.
+  </Card>
+  <Card title="Auto Mode" icon="forward" href="/guide/auto-mode">
+    Walk away. GSD researches, plans, executes, verifies, commits, and advances through every slice until complete.
+  </Card>
+</CardGroup>
+
+## What Changed From v1
+
+The original GSD was a collection of markdown prompts. It worked, but had hard limits. GSD v2 is a TypeScript application that controls the agent session.
+
+| Feature | v1 (Prompt Framework) | v2 (Agent Application) |
+|---------|----------------------|------------------------|
+| Runtime | Claude Code slash commands | Standalone CLI via Pi SDK |
+| Context management | Hope the LLM doesn't fill up | Fresh session per task, programmatic |
+| Auto mode | LLM self-loop | State machine reading `.gsd/` files |
+| Crash recovery | None | Lock files + session forensics |
+| Git strategy | LLM writes git commands | Programmatic branch-per-slice, squash merge |
+| Cost tracking | None | Per-unit token/cost ledger with dashboard |
+
+<Card title="Migrating from v1?" icon="arrow-right" href="/migration/from-v1">
+  Learn how to migrate your existing GSD v1 projects to the new format
 </Card>
 
-## Make it yours
+## Explore the Documentation
 
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book" href="/concepts/architecture">
+    Understand how GSD structures work and manages context
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Commands Reference" icon="terminal" href="/commands/overview">
+    Complete command reference for all GSD operations
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Configuration" icon="gear" href="/configuration/preferences">
+    Configure models, budgets, timeouts, and preferences
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Extensions & Tools" icon="puzzle-piece" href="/extensions/overview">
+    Built-in extensions for enhanced capabilities
   </Card>
-</Columns>
-
-## Create beautiful pages
-
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+</CardGroup>

@@ -1,0 +1,615 @@
+---
+title: /gsd doctor
+description: Audit and fix state inconsistencies
+---
+
+The `/gsd doctor` command audits GSD state for inconsistencies and can automatically fix common issues. It's essential for maintaining state integrity and recovering from crashes or manual edits.
+
+## Syntax
+
+```bash
+/gsd doctor [mode] [scope]
+```
+
+**Modes:**
+- `audit` - Report issues without fixing
+- `fix` - Report and auto-fix issues
+- `heal` - Fix issues then dispatch LLM to resolve remaining problems
+
+**Scope (optional):**
+- `M001` - Audit specific milestone
+- `M001/S02` - Audit specific slice
+- (omit) - Auto-detect scope (active slice > active milestone > all)
+
+## Examples
+
+```bash
+# Audit active scope
+/gsd doctor audit
+
+# Audit specific milestone
+/gsd doctor audit M001
+
+# Audit specific slice
+/gsd doctor audit M001/S02
+
+# Auto-fix issues in active scope
+/gsd doctor fix
+
+# Auto-fix specific milestone
+/gsd doctor fix M001
+
+# Heal mode - fix + LLM dispatch
+/gsd doctor heal M001/S02
+```
+
+## Issue Detection
+
+Doctor checks for 15+ issue types:
+
+### Project-Level Issues
+
+#### invalid_preferences
+
+**Description:** GSD preferences file has invalid format
+
+**Example:**
+```yaml
+# Invalid: always_use_skills is not a list
+always_use_skills: typescript-sdk
+
+# Valid:
+always_use_skills:
+  - typescript-sdk
+```
+
+**Fix:** Manual (doctor reports, user fixes)
+
+#### active_requirement_missing_owner
+
+**Description:** Requirement is Active but has no owning slice
+
+**Example:**
+```markdown
+### R001: User authentication
+
+- Status: Active
+- Priority: P0
+- Primary owning slice: None
+```
+
+**Fix:** Manual (assign owner)
+
+#### blocked_requirement_missing_reason
+
+**Description:** Requirement is Blocked but no reason in Notes
+
+**Example:**
+```markdown
+### R002: Push notifications
+
+- Status: Blocked
+- Notes:
+```
+
+**Fix:** Manual (add reason)
+
+### Slice-Level Issues
+
+#### missing_tasks_dir
+
+**Description:** Slice has no `tasks/` directory
+
+**Fix:** Auto (creates directory)
+
+#### missing_slice_plan
+
+**Description:** Slice has no `S##-PLAN.md`
+
+**Fix:** Manual (plan hasn't been created yet)
+
+#### all_tasks_done_missing_slice_summary
+
+**Description:** All tasks complete but no `S##-SUMMARY.md`
+
+**Fix:** Auto (creates placeholder stub)
+
+**Severity:** Error (blocks completion)
+
+#### all_tasks_done_missing_slice_uat
+
+**Description:** All tasks complete but no `S##-UAT.md`
+
+**Fix:** Auto (creates placeholder stub)
+
+**Severity:** Warning (UAT optional in some cases)
+
+#### all_tasks_done_roadmap_not_checked
+
+**Description:** All tasks complete but roadmap still shows `- [ ] S##`
+
+**Fix:** Auto (marks `- [x] S##` in roadmap)
+
+**Severity:** Error (blocks advancement)
+
+#### slice_checked_missing_summary
+
+**Description:** Roadmap shows `- [x] S##` but no summary file
+
+**Fix:** Auto (creates placeholder)
+
+**Severity:** Error (invalid state)
+
+#### slice_checked_missing_uat
+
+**Description:** Roadmap shows `- [x] S##` but no UAT file
+
+**Fix:** Auto (creates placeholder)
+
+**Severity:** Warning
+
+#### blocker_discovered_no_replan
+
+**Description:** Task summary has `blocker_discovered: true` but no `REPLAN.md` exists
+
+**Fix:** Manual (needs replanning)
+
+**Severity:** Warning (slice is stuck)
+
+### Task-Level Issues
+
+#### task_done_missing_summary
+
+**Description:** Task marked `- [x]` in plan but no `T###-SUMMARY.md`
+
+**Fix:** Manual (LLM didn't write summary)
+
+**Severity:** Error
+
+#### task_summary_without_done_checkbox
+
+**Description:** `T###-SUMMARY.md` exists but plan shows `- [ ]`
+
+**Fix:** Auto (marks checkbox)
+
+**Severity:** Warning
+
+#### task_done_must_haves_not_verified
+
+**Description:** Task is done but summary doesn't address all must-haves from plan
+
+**Fix:** Manual (summary incomplete)
+
+**Severity:** Warning
+
+### Milestone-Level Issues
+
+#### all_slices_done_missing_milestone_summary
+
+**Description:** All slices complete but no `M###-SUMMARY.md`
+
+**Fix:** Manual (needs complete-milestone unit)
+
+**Severity:** Warning
+
+## Example Output
+
+### Audit Mode
+
+```bash
+$ /gsd doctor audit M001
+
+GSD doctor audit.
+Scope: M001
+Issues: 8 total · 3 error(s) · 4 warning(s) · 6 fixable
+
+Top issue types:
+- task_summary_without_done_checkbox: 3
+- all_tasks_done_missing_slice_summary: 2
+- task_done_must_haves_not_verified: 2
+- blocker_discovered_no_replan: 1
+
+Priority issues:
+- [ERROR] M001/S01: All tasks are done but S01-SUMMARY.md is missing (.gsd/milestones/M001/S01/S01-SUMMARY.md)
+- [ERROR] M001/S02/T003: Task T003 is marked done but summary is missing (.gsd/milestones/M001/S02/tasks/T003-SUMMARY.md)
+- [WARN] M001/S02/T001: Task T001 has a summary but is not marked done in the slice plan (.gsd/milestones/M001/S02/S02-PLAN.md)
+- [WARN] M001/S02/T001: Task T001 has 3 must-haves but summary addresses only 1 (.gsd/milestones/M001/S02/tasks/T001-SUMMARY.md)
+- [WARN] M001/S03: Task T004 reported blocker_discovered but no REPLAN.md exists for S03 — slice may be stuck (.gsd/milestones/M001/S03/S03-REPLAN.md)
+```
+
+### Fix Mode
+
+```bash
+$ /gsd doctor fix M001
+
+GSD doctor found blocking issues.
+Scope: M001
+Issues: 8 total · 3 error(s) · 4 warning(s) · 6 fixable
+
+[... same issue list ...]
+
+Fixes applied:
+- created placeholder .gsd/milestones/M001/S01/S01-SUMMARY.md
+- created placeholder .gsd/milestones/M001/S01/S01-UAT.md
+- marked T001 done in .gsd/milestones/M001/S02/S02-PLAN.md
+- marked T002 done in .gsd/milestones/M001/S02/S02-PLAN.md
+- marked S01 done in .gsd/milestones/M001/M001-ROADMAP.md
+- updated .gsd/STATE.md
+```
+
+### Heal Mode
+
+```bash
+$ /gsd doctor heal M001/S02
+
+GSD doctor heal prep.
+Scope: M001/S02
+Issues: 3 total · 1 error(s) · 2 warning(s) · 1 fixable
+
+[... issue list ...]
+
+Fixes applied:
+- marked T001 done in .gsd/milestones/M001/S02/S02-PLAN.md
+
+Doctor heal dispatched 2 issue(s) to the LLM.
+
+# Agent receives prompt:
+# "
+# The following GSD state issues need fixing:
+# 
+# - [ERROR] M001/S02/T003 | task_done_missing_summary | Task T003 is marked done but summary is missing | file: .gsd/milestones/M001/S02/tasks/T003-SUMMARY.md | fixable: no
+# - [WARN] M001/S02/T001 | task_done_must_haves_not_verified | Task T001 has 3 must-haves but summary addresses only 1 | file: .gsd/milestones/M001/S02/tasks/T001-SUMMARY.md | fixable: no
+# 
+# Fix these issues now.
+# "
+
+# Agent fixes:
+Agent: I'll address these issues:
+
+1. T003 is marked done but has no summary - I'll create T003-SUMMARY.md
+2. T001 summary doesn't address all must-haves - I'll review and expand
+
+# Writes T003-SUMMARY.md
+# Edits T001-SUMMARY.md
+
+Agent: Fixed both issues. Run /gsd doctor audit M001/S02 to verify.
+
+$ /gsd doctor audit M001/S02
+GSD doctor report.
+Scope: M001/S02
+Issues: 0 total · 0 error(s) · 0 warning(s) · 0 fixable
+```
+
+## Implementation
+
+The doctor is implemented in `doctor.ts:425`:
+
+```typescript
+export async function runGSDDoctor(
+  basePath: string,
+  options?: { fix?: boolean; scope?: string; fixLevel?: "task" | "all" },
+): Promise<DoctorReport> {
+  const issues: DoctorIssue[] = [];
+  const fixesApplied: string[] = [];
+  const fix = options?.fix === true;
+  const fixLevel = options?.fixLevel ?? "all";
+
+  // Validate preferences
+  const prefs = loadEffectiveGSDPreferences();
+  if (prefs) {
+    const prefIssues = validatePreferenceShape(prefs.preferences);
+    for (const issue of prefIssues) {
+      issues.push({
+        severity: "warning",
+        code: "invalid_preferences",
+        scope: "project",
+        unitId: "project",
+        message: `GSD preferences invalid: ${issue}`,
+        file: prefs.path,
+        fixable: false,
+      });
+    }
+  }
+
+  // Audit requirements
+  const requirementsContent = await loadFile(resolveGsdRootFile(basePath, "REQUIREMENTS"));
+  issues.push(...auditRequirements(requirementsContent));
+
+  // Audit milestones
+  const state = await deriveState(basePath);
+  for (const milestone of state.registry) {
+    const roadmap = parseRoadmap(await loadFile(resolveMilestoneFile(basePath, milestone.id, "ROADMAP")));
+    
+    for (const slice of roadmap.slices) {
+      const plan = parsePlan(await loadFile(resolveSliceFile(basePath, milestone.id, slice.id, "PLAN")));
+      
+      // Check task consistency
+      for (const task of plan.tasks) {
+        const summaryPath = resolveTaskFile(basePath, milestone.id, slice.id, task.id, "SUMMARY");
+        const hasSummary = !!(summaryPath && await loadFile(summaryPath));
+        
+        if (task.done && !hasSummary) {
+          issues.push({
+            severity: "error",
+            code: "task_done_missing_summary",
+            scope: "task",
+            unitId: `${milestone.id}/${slice.id}/${task.id}`,
+            message: `Task ${task.id} is marked done but summary is missing`,
+            file: relTaskFile(basePath, milestone.id, slice.id, task.id, "SUMMARY"),
+            fixable: false,
+          });
+        }
+        
+        if (!task.done && hasSummary) {
+          issues.push({
+            severity: "warning",
+            code: "task_summary_without_done_checkbox",
+            scope: "task",
+            unitId: `${milestone.id}/${slice.id}/${task.id}`,
+            message: `Task ${task.id} has a summary but is not marked done in the slice plan`,
+            file: relSliceFile(basePath, milestone.id, slice.id, "PLAN"),
+            fixable: true,
+          });
+          
+          if (fix) {
+            await markTaskDoneInPlan(basePath, milestone.id, slice.id, task.id, fixesApplied);
+          }
+        }
+      }
+      
+      // Check slice consistency
+      const allTasksDone = plan.tasks.every(t => t.done);
+      const hasSummary = !!(await loadFile(resolveSliceFile(basePath, milestone.id, slice.id, "SUMMARY")));
+      
+      if (allTasksDone && !hasSummary) {
+        issues.push({
+          severity: "error",
+          code: "all_tasks_done_missing_slice_summary",
+          scope: "slice",
+          unitId: `${milestone.id}/${slice.id}`,
+          message: `All tasks are done but ${slice.id}-SUMMARY.md is missing`,
+          file: relSliceFile(basePath, milestone.id, slice.id, "SUMMARY"),
+          fixable: true,
+        });
+        
+        if (fix && fixLevel === "all") {
+          await ensureSliceSummaryStub(basePath, milestone.id, slice.id, fixesApplied);
+        }
+      }
+    }
+  }
+
+  // Rebuild STATE.md if fixes applied
+  if (fix && fixesApplied.length > 0) {
+    await updateStateFile(basePath, fixesApplied);
+  }
+
+  return {
+    ok: issues.every(issue => issue.severity !== "error"),
+    basePath,
+    issues,
+    fixesApplied,
+  };
+}
+```
+
+## Auto-Fix Logic
+
+### Task Checkbox Marking
+
+```typescript
+async function markTaskDoneInPlan(
+  basePath: string,
+  milestoneId: string,
+  sliceId: string,
+  taskId: string,
+  fixesApplied: string[],
+): Promise<void> {
+  const planPath = resolveSliceFile(basePath, milestoneId, sliceId, "PLAN");
+  const content = await loadFile(planPath);
+  const updated = content.replace(
+    new RegExp(`^-\\s+\\[ \\]\\s+\\*\\*${taskId}:`, "m"),
+    `- [x] **${taskId}:`,
+  );
+  if (updated !== content) {
+    await saveFile(planPath, updated);
+    fixesApplied.push(`marked ${taskId} done in ${planPath}`);
+  }
+}
+```
+
+### Slice Summary Stub
+
+```typescript
+async function ensureSliceSummaryStub(
+  basePath: string,
+  milestoneId: string,
+  sliceId: string,
+  fixesApplied: string[],
+): Promise<void> {
+  const path = resolveSliceFile(basePath, milestoneId, sliceId, "SUMMARY");
+  const content = [
+    "---",
+    `id: ${sliceId}`,
+    `parent: ${milestoneId}`,
+    `milestone: ${milestoneId}`,
+    "provides: []",
+    "requires: []",
+    "affects: []",
+    "key_files: []",
+    "observability_surfaces:",
+    "  - none yet — doctor created placeholder summary",
+    `completed_at: ${new Date().toISOString()}`,
+    "---",
+    "",
+    `# ${sliceId}: Recovery placeholder summary`,
+    "",
+    "**Doctor-created placeholder.**",
+    "",
+    "## What Happened",
+    "Doctor detected that all tasks were complete but the slice summary was missing.",
+    "Replace this with a real compressed slice summary before relying on it.",
+  ].join("\n");
+  
+  await saveFile(path, content);
+  fixesApplied.push(`created placeholder ${path}`);
+}
+```
+
+## Fix Levels
+
+Doctor supports two fix levels:
+
+### fixLevel: "task"
+
+Fixes task-level bookkeeping only:
+- Marks task checkboxes when summaries exist
+- Does NOT create slice summaries
+- Does NOT mark slices done in roadmap
+
+**Use case:** Auto mode post-hook (after each unit)
+
+### fixLevel: "all"
+
+Fixes everything it can:
+- Task-level bookkeeping
+- Slice summary/UAT stubs
+- Roadmap checkbox marking
+
+**Use case:** Manual `/gsd doctor fix` or crash recovery
+
+## Scope Selection
+
+Doctor auto-detects scope if not provided:
+
+```typescript
+export async function selectDoctorScope(
+  basePath: string,
+  requestedScope?: string,
+): Promise<string | undefined> {
+  if (requestedScope) return requestedScope;
+
+  const state = await deriveState(basePath);
+  
+  // Active slice (most specific)
+  if (state.activeMilestone?.id && state.activeSlice?.id) {
+    return `${state.activeMilestone.id}/${state.activeSlice.id}`;
+  }
+  
+  // Active milestone
+  if (state.activeMilestone?.id) {
+    return state.activeMilestone.id;
+  }
+
+  // First incomplete milestone
+  for (const milestone of state.registry) {
+    const roadmapContent = await loadFile(resolveMilestoneFile(basePath, milestone.id, "ROADMAP"));
+    if (roadmapContent) {
+      const roadmap = parseRoadmap(roadmapContent);
+      if (!isMilestoneComplete(roadmap)) return milestone.id;
+    }
+  }
+
+  // Fallback: first milestone
+  return state.registry[0]?.id;
+}
+```
+
+## Best Practices
+
+<Tip>
+**Run doctor after manual edits.** If you edit `.gsd/` files directly, run `/gsd doctor fix` to update derived state (STATE.md, checkboxes).
+</Tip>
+
+<Info>
+**Use heal mode for stuck auto-mode.** If auto-mode stops with errors, `/gsd doctor heal` will fix what it can and dispatch the rest to the LLM.
+</Info>
+
+<Warning>
+**Don't rely on placeholder summaries.** Doctor creates stubs to unblock state transitions, but they're intentionally incomplete. Replace them with real summaries.
+</Warning>
+
+## Common Workflows
+
+### After Crash Recovery
+
+```bash
+# Restart auto mode
+/gsd auto
+
+# If it stops with errors
+/gsd doctor fix
+/gsd auto
+```
+
+### After Manual Edits
+
+```bash
+# Edit task summary
+code .gsd/milestones/M001/S02/tasks/T003-SUMMARY.md
+
+# Mark checkbox
+code .gsd/milestones/M001/S02/S02-PLAN.md
+# Change: - [ ] **T003:** ...
+# To:     - [x] **T003:** ...
+
+# Rebuild state
+/gsd doctor fix
+
+# Verify
+/gsd status
+```
+
+### Regular Audits
+
+```bash
+# Periodic health check
+/gsd doctor audit
+
+# If issues found
+/gsd doctor fix
+```
+
+## Troubleshooting
+
+### Doctor reports false positives
+
+**Symptom:** Doctor says T003 is done but has no summary, but the file exists
+
+**Solution:**
+```bash
+# Check file naming
+ls .gsd/milestones/M001/S02/tasks/
+# Expected: T003-SUMMARY.md
+# If wrong: T003-summary.md (lowercase)
+
+# Rename
+mv T003-summary.md T003-SUMMARY.md
+
+# Re-audit
+/gsd doctor audit M001/S02
+```
+
+### Can't fix error
+
+**Symptom:** Doctor says "fixable: true" but fix mode doesn't fix it
+
+**Solution:**
+Check `fixLevel`. Some fixes require `fixLevel: "all"` (default for `/gsd doctor fix`).
+
+## Related Commands
+
+- [/gsd auto](/commands/gsd-auto) - Uses doctor post-hook
+- [/gsd status](/commands/gsd-status) - Shows state derived by doctor
+- [/gsd migrate](/commands/gsd-migrate) - Uses doctor for post-migration audit
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="State Machine" icon="diagram-project" href="/advanced/state-management">
+    Understand how state is derived
+  </Card>
+  <Card title="Recovery" icon="life-ring" href="/advanced/crash-recovery">
+    Learn crash recovery workflows
+  </Card>
+</CardGroup>

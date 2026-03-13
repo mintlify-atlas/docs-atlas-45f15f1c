@@ -1,0 +1,312 @@
+---
+title: Timeout Configuration
+description: Configure soft, idle, and hard timeouts for auto mode supervision
+---
+
+GSD uses a three-tier timeout system to supervise auto mode and prevent runaway execution.
+
+## Timeout Types
+
+<CardGroup cols={3}>
+  <Card title="Soft Timeout" icon="bell">
+    Warns the agent to wrap up
+    
+    Default: **20 minutes**
+  </Card>
+  
+  <Card title="Idle Timeout" icon="hourglass">
+    Detects stalled tasks with no progress
+    
+    Default: **10 minutes**
+  </Card>
+  
+  <Card title="Hard Timeout" icon="ban">
+    Maximum time ceiling — pauses auto mode
+    
+    Default: **30 minutes**
+  </Card>
+</CardGroup>
+
+## Configuration
+
+Set timeouts in your [preferences file](/configuration/preferences) under `auto_supervisor`:
+
+```yaml
+---
+version: 1
+auto_supervisor:
+  soft_timeout_minutes: 20
+  idle_timeout_minutes: 10
+  hard_timeout_minutes: 30
+---
+```
+
+All values are in **minutes**.
+
+## How Timeouts Work
+
+### 1. Soft Timeout (Wrap-Up Warning)
+
+When a unit crosses the soft timeout threshold, GSD sends a warning message to the agent:
+
+```
+**TIME BUDGET WARNING — keep going only if progress is real.**
+
+This unit crossed the soft time budget.
+If you are making progress, continue. If not, switch to wrap-up mode now:
+1. rerun the minimal required verification
+2. write or update the required durable artifacts
+3. mark task or slice state on disk correctly
+4. leave precise resume notes if anything remains unfinished
+```
+
+The agent can:
+- **Continue** if making real progress
+- **Wrap up** with minimal verification and durable output
+
+<Note>
+The soft timeout is a **warning**, not a hard stop. Productive long-running tasks can continue past this threshold.
+</Note>
+
+### 2. Idle Timeout (Progress Watchdog)
+
+GSD monitors progress every 15 seconds. If no meaningful activity happens for `idle_timeout_minutes`, auto mode pauses.
+
+**Progress indicators:**
+- Tool calls
+- File writes
+- Git activity
+- Filesystem changes (detected via `git status --porcelain`)
+
+If the agent is stuck in a loop or stalled:
+
+```
+Unit execute-task M001/S02/T03 made no meaningful progress for 10min. Pausing auto-mode.
+```
+
+<Tip>
+The idle timeout catches cases where the agent is consuming tokens but not producing output.
+</Tip>
+
+### 3. Hard Timeout (Absolute Ceiling)
+
+If a unit runs longer than `hard_timeout_minutes`, auto mode pauses immediately:
+
+```
+Unit execute-task M001/S02/T03 exceeded 30min hard timeout. Pausing auto-mode.
+```
+
+This prevents runaway costs when a task is genuinely too large.
+
+## Recovery After Timeout
+
+When a timeout triggers, GSD:
+
+1. **Snapshots metrics** — captures token usage and cost
+2. **Saves activity log** — writes tool call history to disk
+3. **Attempts recovery** — tries to nudge the agent to wrap up
+4. **Pauses auto mode** if recovery fails
+
+You can:
+- Review what happened via `/gsd status`
+- Inspect the task plan and summary
+- Resume with `/gsd auto` if the issue is fixed
+- Skip the unit and move on manually
+
+## Timeout Defaults
+
+Default values are tuned for typical GSD units:
+
+| Phase | Typical Duration | Soft Timeout | Idle Timeout | Hard Timeout |
+|-------|------------------|--------------|--------------|-------------|
+| Research | 5-10 min | 20 min | 10 min | 30 min |
+| Planning | 8-15 min | 20 min | 10 min | 30 min |
+| Execution | 10-20 min | 20 min | 10 min | 30 min |
+| Completion | 3-8 min | 20 min | 10 min | 30 min |
+
+If you consistently hit timeouts, consider:
+- Breaking tasks into smaller units
+- Using a faster model
+- Raising timeout thresholds
+
+## Adjusting Timeouts
+
+### Conservative (Shorter Timeouts)
+
+For simple projects or cost control:
+
+```yaml
+auto_supervisor:
+  soft_timeout_minutes: 10
+  idle_timeout_minutes: 5
+  hard_timeout_minutes: 15
+```
+
+### Generous (Longer Timeouts)
+
+For complex codebases or deep research:
+
+```yaml
+auto_supervisor:
+  soft_timeout_minutes: 30
+  idle_timeout_minutes: 15
+  hard_timeout_minutes: 45
+```
+
+### Custom Per-Phase
+
+You can't set timeouts per-phase directly, but you can use different preferences files for different projects:
+
+**Simple project** (`.gsd/preferences.md`):
+
+```yaml
+auto_supervisor:
+  soft_timeout_minutes: 10
+  idle_timeout_minutes: 5
+  hard_timeout_minutes: 15
+```
+
+**Complex project** (`.gsd/preferences.md`):
+
+```yaml
+auto_supervisor:
+  soft_timeout_minutes: 30
+  idle_timeout_minutes: 15
+  hard_timeout_minutes: 45
+```
+
+## Timeout Events
+
+GSD logs timeout events to:
+
+```
+.gsd/runtime/{unit-type}-{unit-id}.yaml
+```
+
+Example:
+
+```yaml
+type: execute-task
+id: M001/S02/T03
+startedAt: 2026-03-13T10:15:00Z
+lastProgressAt: 2026-03-13T10:20:00Z
+lastProgressKind: filesystem-activity
+phase: paused
+wrapupWarningSent: true
+timeoutAt: 2026-03-13T10:45:00Z
+```
+
+This shows:
+- When the unit started
+- When progress last occurred
+- Whether wrap-up warning was sent
+- When timeout triggered
+
+## Preventing Timeouts
+
+### 1. Break Down Large Tasks
+
+If tasks consistently timeout, they're too large. Revisit your slice plan:
+
+```bash
+/gsd discuss
+```
+
+Discuss breaking the slice into smaller tasks.
+
+### 2. Use Faster Models
+
+Slower models (thinking models, large context) take longer:
+
+```yaml
+models:
+  execution: claude-sonnet-4-6  # Faster than Opus
+```
+
+### 3. Increase Timeouts
+
+If tasks are legitimately complex:
+
+```yaml
+auto_supervisor:
+  soft_timeout_minutes: 30
+  idle_timeout_minutes: 15
+  hard_timeout_minutes: 60
+```
+
+### 4. Monitor Progress
+
+Run auto mode in one terminal, monitor in another:
+
+**Terminal 1:**
+
+```bash
+gsd
+/gsd auto
+```
+
+**Terminal 2:**
+
+```bash
+gsd
+/gsd status  # Check progress
+Ctrl+Alt+G   # Open dashboard overlay
+```
+
+If you see a task stalling, you can intervene before the hard timeout.
+
+## Timeout vs Budget Ceiling
+
+Timeouts and [budget ceiling](/configuration/budget) work together:
+
+- **Timeouts** prevent runaway **time**
+- **Budget ceiling** prevents runaway **cost**
+
+Both pause auto mode when limits are hit.
+
+## Disabling Timeouts
+
+<Warning>
+Disabling timeouts is not recommended. It removes auto mode's safety net.
+</Warning>
+
+If you must disable timeouts, set very high values:
+
+```yaml
+auto_supervisor:
+  soft_timeout_minutes: 9999
+  idle_timeout_minutes: 9999
+  hard_timeout_minutes: 9999
+```
+
+## Timeout Supervision Model
+
+You can optionally specify a different model for timeout recovery steering:
+
+```yaml
+auto_supervisor:
+  model: claude-sonnet-4-6
+  soft_timeout_minutes: 20
+  idle_timeout_minutes: 10
+  hard_timeout_minutes: 30
+```
+
+This sends the wrap-up warning to the specified model instead of the unit's execution model.
+
+<Note>
+Most users don't need to set a custom supervision model. The default (same as execution model) works well.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Budget Ceiling" icon="dollar-sign" href="/configuration/budget">
+    Set spending limits
+  </Card>
+  <Card title="Model Selection" icon="brain" href="/configuration/models">
+    Use faster models to reduce timeout risk
+  </Card>
+  <Card title="Preferences" icon="sliders" href="/configuration/preferences">
+    Learn about all preference options
+  </Card>
+</CardGroup>

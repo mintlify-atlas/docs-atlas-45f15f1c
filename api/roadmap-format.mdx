@@ -1,0 +1,395 @@
+---
+title: "ROADMAP Format"
+description: "Milestone roadmap structure with slices and boundary map"
+---
+
+## Overview
+
+The ROADMAP file (e.g. `M001-ROADMAP.md`) defines a milestone's vision, slices, and dependencies. It's the top-level plan for a shippable version.
+
+## Structure
+
+```markdown
+# M001: Payment Integration
+
+**Vision:** Users can purchase subscriptions using Stripe
+
+**Success Criteria:**
+- Users can enter payment details
+- Subscriptions are created in Stripe
+- Webhooks update local subscription status
+- Failed payments trigger retry flow
+
+## Slices
+
+- [ ] **S01: Stripe SDK Setup** `risk:low` `depends:[]`
+  > After this: Stripe SDK installed and configured with test keys
+
+- [ ] **S02: Checkout Flow** `risk:medium` `depends:[S01]`
+  > After this: Users can complete checkout and create subscriptions
+
+- [x] **S03: Webhook Handlers** `risk:medium` `depends:[S01,S02]`
+  > After this: Subscription events update database state
+
+- [ ] **S04: Payment Retry** `risk:high` `depends:[S03]`
+  > After this: Failed payments trigger automatic retry with notifications
+
+## Boundary Map
+
+### S01 → S02
+
+**Produces:**
+- Stripe client initialized with API keys
+- Helper functions for creating customers
+- Environment variable documentation
+
+**Consumes:** nothing
+
+### S02 → S03
+
+**Produces:**
+- Checkout session creation endpoint
+- Subscription model in database
+- Success/cancel redirect URLs
+
+**Consumes:**
+- Stripe client (from S01)
+- User authentication (from M001)
+
+### S03 → S04
+
+**Produces:**
+- Webhook endpoint with signature verification
+- Event handlers for subscription lifecycle
+- Database persistence for webhook events
+
+**Consumes:**
+- Subscription model (from S02)
+- Stripe client (from S01)
+```
+
+## Fields
+
+### Header
+
+<ParamField path="Title" type="string" required>
+  Milestone ID and descriptive title (e.g. "M001: Payment Integration")
+</ParamField>
+
+<ParamField path="Vision" type="string" required>
+  One-sentence statement of what this milestone achieves
+</ParamField>
+
+<ParamField path="Success Criteria" type="list" required>
+  Measurable outcomes that define milestone completion
+</ParamField>
+
+### Slices Section
+
+<ParamField path="Slices" type="list" required>
+  Ordered list of vertical slices with checkbox format
+</ParamField>
+
+Each slice entry follows this format:
+
+```markdown
+- [ ] **S01: Slice Title** `risk:level` `depends:[...]`
+  > After this: Demo statement
+```
+
+#### Slice Fields
+
+<ParamField path="checkbox" type="boolean" required>
+  `[ ]` for incomplete, `[x]` for complete
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Slice ID (S01, S02, etc.)
+</ParamField>
+
+<ParamField path="title" type="string" required>
+  Brief, clear title for the slice
+</ParamField>
+
+<ParamField path="risk" type="enum" required>
+  Risk level: `low`, `medium`, or `high`
+</ParamField>
+
+<ParamField path="depends" type="array" required>
+  Array of slice IDs that must be complete first (can be empty: `[]`)
+</ParamField>
+
+<ParamField path="demo" type="string" required>
+  "After this:" statement describing demoable outcome
+</ParamField>
+
+### Boundary Map Section
+
+<ParamField path="Boundary Map" type="section">
+  Optional section defining interfaces between slices
+</ParamField>
+
+Each boundary entry is a level-3 heading with arrow notation:
+
+```markdown
+### S01 → S02
+
+**Produces:**
+Bulleted or plain text describing outputs from S01
+
+**Consumes:**
+Bulleted or plain text describing inputs to S02
+```
+
+#### Boundary Fields
+
+<ParamField path="fromSlice" type="string" required>
+  Source slice ID (e.g. "S01")
+</ParamField>
+
+<ParamField path="toSlice" type="string" required>
+  Target slice ID (e.g. "S02")
+</ParamField>
+
+<ParamField path="produces" type="string" required>
+  What the source slice creates/exports
+</ParamField>
+
+<ParamField path="consumes" type="string" required>
+  What the target slice needs from the source (or "nothing")
+</ParamField>
+
+## TypeScript Interface
+
+```typescript
+export interface Roadmap {
+  title: string;
+  vision: string;
+  successCriteria: string[];
+  slices: RoadmapSliceEntry[];
+  boundaryMap: BoundaryMapEntry[];
+}
+
+export interface RoadmapSliceEntry {
+  id: string;          // e.g. "S01"
+  title: string;       // e.g. "Stripe SDK Setup"
+  risk: RiskLevel;     // 'low' | 'medium' | 'high'
+  depends: string[];   // e.g. ["S01", "S02"]
+  done: boolean;
+  demo: string;        // the "After this:" sentence
+}
+
+export interface BoundaryMapEntry {
+  fromSlice: string;   // e.g. "S01"
+  toSlice: string;     // e.g. "S02"
+  produces: string;    // raw text block
+  consumes: string;    // raw text block
+}
+
+type RiskLevel = 'low' | 'medium' | 'high';
+```
+
+## Parsing
+
+GSD parses ROADMAP files using the `parseRoadmap()` function:
+
+1. **Extract title**: First H1 heading
+2. **Extract vision**: Bold field `**Vision:**`
+3. **Extract success criteria**: Section "Success Criteria" → bullet list
+4. **Parse slices**: Section "Slices" → checkbox items with inline metadata
+5. **Parse boundary map**: Section "Boundary Map" → H3 headings with arrow notation
+
+### Slice Parsing Pattern
+
+```typescript
+const cbMatch = line.match(/^-\s+\[([xX ])\]\s+\*\*(\w+):\s+(.+?)\*\*\s*(.*)/);
+```
+
+Extracts:
+- Checkbox state (`[x]` or `[ ]`)
+- Slice ID (`S01`)
+- Title (`Stripe SDK Setup`)
+- Metadata (`risk:low`, `depends:[]`)
+
+### Metadata Extraction
+
+```typescript
+const riskMatch = rest.match(/`risk:(\w+)`/);
+const depsMatch = rest.match(/`depends:\[([^\]]*)\]`/);
+```
+
+Extracts risk level and dependency array from inline code blocks.
+
+## Example: Full ROADMAP
+
+```markdown
+# M002: Real-Time Notifications
+
+**Vision:** Users receive instant notifications for task updates
+
+**Success Criteria:**
+- WebSocket connection established on login
+- Task changes broadcast to connected clients
+- Notifications displayed with toast UI
+- Connection resilience with auto-reconnect
+- Less than 500ms notification latency
+
+## Slices
+
+- [ ] **S01: Socket.io Setup** `risk:low` `depends:[]`
+  > After this: Socket.io server integrated with Express
+
+- [ ] **S02: Connection Management** `risk:medium` `depends:[S01]`
+  > After this: Clients connect on login, disconnect on logout
+
+- [ ] **S03: Task Event Broadcasting** `risk:medium` `depends:[S02]`
+  > After this: Task changes broadcast to relevant users
+
+- [ ] **S04: Client-Side Notifications** `risk:low` `depends:[S03]`
+  > After this: Toast notifications display on task updates
+
+- [ ] **S05: Reconnection Logic** `risk:high` `depends:[S02]`
+  > After this: Clients auto-reconnect on disconnect with backoff
+
+## Boundary Map
+
+### S01 → S02
+
+**Produces:**
+- Socket.io server instance attached to Express
+- Middleware for socket authentication
+- Room management utilities
+
+**Consumes:** nothing
+
+### S02 → S03
+
+**Produces:**
+- User socket connection tracking
+- Room join/leave logic (per-task subscriptions)
+- Authenticated socket middleware
+
+**Consumes:**
+- Socket.io server (from S01)
+- User authentication (from M001)
+
+### S03 → S04
+
+**Produces:**
+- Server-side event emission on task changes
+- Event payload format (JSON schema)
+- Room-based broadcasting (only to subscribed users)
+
+**Consumes:**
+- Connection tracking (from S02)
+- Task model (from M001)
+
+### S04 → S05
+
+**Produces:**
+- React context for socket connection
+- Toast notification component
+- Event handler registration
+
+**Consumes:**
+- Event payloads (from S03)
+- Socket connection (from S02)
+
+### S05 → terminal
+
+**Produces:**
+- Reconnection with exponential backoff
+- Connection state UI indicator
+- Missed event recovery on reconnect
+
+**Consumes:**
+- Socket connection (from S02)
+- Client state management (from S04)
+```
+
+## Validation Rules
+
+<Warning>
+  ROADMAP files are validated on load. Invalid files will cause planning to fail.
+</Warning>
+
+### Required Elements
+
+- Must have H1 heading with milestone ID
+- Must have `**Vision:**` field
+- Must have "## Success Criteria" section with at least one bullet
+- Must have "## Slices" section with at least one slice entry
+
+### Slice Validation
+
+- Each slice must have unique ID (S01, S02, etc.)
+- Risk must be one of: `low`, `medium`, `high`
+- Dependencies must reference defined slices
+- No circular dependencies allowed
+- Demo statement must be present ("After this:" line)
+
+### Dependency Ordering
+
+```typescript
+export function validateSliceDependencies(slices: RoadmapSliceEntry[]): boolean {
+  const ids = new Set(slices.map(s => s.id));
+  
+  for (const slice of slices) {
+    // All dependencies must exist
+    if (!slice.depends.every(dep => ids.has(dep))) {
+      return false;
+    }
+    
+    // Check for circular dependencies (simplified)
+    if (hasCircularDeps(slice.id, slices)) {
+      return false;
+    }
+  }
+  
+  return true;
+}
+```
+
+## Editing Guidelines
+
+### During Planning
+
+- **Add slices** as needed to break down work
+- **Adjust risk levels** based on research findings
+- **Update dependencies** to reflect actual relationships
+- **Refine demo statements** to be concrete and testable
+
+### During Execution
+
+- **Check off slices** as they complete
+- **Do not reorder** slices (breaks state tracking)
+- **Do not change IDs** (breaks file references)
+- **Do not remove slices** (mark as done or add skip flag instead)
+
+### Boundary Map
+
+- **Add entries** for all slice transitions
+- **Be specific** about what is produced (files, functions, models)
+- **List all dependencies** in "consumes" section
+- **Use "nothing"** if a slice has no dependencies
+
+<Tip>
+  The boundary map is optional but highly recommended. It helps agents understand how slices connect.
+</Tip>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="PLAN Format" icon="list-check" href="/api/plan-format">
+    Slice plan format with tasks
+  </Card>
+  <Card title="SUMMARY Format" icon="file-lines" href="/api/summary-format">
+    Slice summary format after completion
+  </Card>
+  <Card title=".gsd/ Directory" icon="folder-tree" href="/api/gsd-directory">
+    Complete directory structure
+  </Card>
+  <Card title="State Files" icon="database" href="/api/state-files">
+    Runtime state tracking
+  </Card>
+</CardGroup>

@@ -1,0 +1,500 @@
+---
+title: /gsd migrate
+description: Migrate from GSD 1.0 (.planning) to GSD 2.0 (.gsd)
+---
+
+The `/gsd migrate` command converts projects from the legacy `.planning/` format (GSD 1.0) to the new `.gsd/` format (GSD 2.0). It's a one-shot migration with validation, preview, and optional agent review.
+
+## Syntax
+
+```bash
+/gsd migrate <path>
+```
+
+**Arguments:**
+- `<path>` - Path to directory containing `.planning/` (defaults to current directory)
+
+## Example
+
+```bash
+# Migrate from current directory
+cd ~/my-old-project
+/gsd migrate
+
+# Migrate from specific path
+/gsd migrate ~/my-old-project
+
+# Migrate with ~ expansion
+/gsd migrate ~/projects/legacy-app
+```
+
+## Migration Pipeline
+
+The migration follows a strict 4-phase pipeline:
+
+```
+.planning/  →  Validate  →  Parse  →  Transform  →  Write  →  .gsd/
+```
+
+### Phase 1: Validate
+
+Checks for fatal issues that would block migration:
+
+**Validation rules:**
+- `.planning/` directory exists
+- `ROADMAP.md` exists and is parsable
+- At least one slice defined
+- All slice files exist (if referenced in roadmap)
+- Task files match plan references
+- No circular dependencies
+
+**Output:**
+
+```
+⚠ Warning: M001/S02/PLAN.md missing some task files (recoverable)
+✖ Fatal: ROADMAP.md is malformed - cannot parse slice list
+Migration blocked — fix the fatal issues above before retrying.
+```
+
+### Phase 2: Parse
+
+Reads all `.planning/` files into memory:
+
+```typescript
+interface ParsedPlanning {
+  project?: ProjectMetadata;        // PROJECT.md
+  requirements?: Requirement[];     // REQUIREMENTS.md
+  decisions?: Decision[];           // DECISIONS.md
+  milestones: ParsedMilestone[];    // M###/ directories
+}
+
+interface ParsedMilestone {
+  id: string;                       // M001
+  context?: string;                 // CONTEXT.md content
+  roadmap: ParsedRoadmap;           // ROADMAP.md parsed
+  slices: ParsedSlice[];            // S##/ directories
+}
+
+interface ParsedSlice {
+  id: string;                       // S01
+  plan?: ParsedPlan;                // PLAN.md
+  summary?: string;                 // SUMMARY.md
+  tasks: ParsedTask[];              // tasks/ directory
+}
+```
+
+### Phase 3: Transform
+
+Converts parsed structure to GSD 2.0 format:
+
+**Key transformations:**
+
+1. **File renames:**
+   - `ROADMAP.md` → `M###-ROADMAP.md`
+   - `PLAN.md` → `S##-PLAN.md`
+   - `SUMMARY.md` → `S##-SUMMARY.md`
+   - `T###-CONTEXT.md` → `T###-PLAN.md`
+   - `T###-RESULT.md` → `T###-SUMMARY.md`
+
+2. **Frontmatter enrichment:**
+   ```markdown
+   # Old: no frontmatter
+   # S01: User authentication
+   
+   # New: structured metadata
+   ---
+   id: S01
+   parent: M001
+   milestone: M001
+   status: complete
+   ---
+   # S01: User authentication
+   ```
+
+3. **Path updates:**
+   - File references updated to new names
+   - Relative paths preserved
+
+4. **Structure normalization:**
+   - Tasks moved to `tasks/` subdirectory
+   - Consistent checkbox format `- [x]` → `- [x]`
+
+### Phase 4: Write
+
+Writes transformed structure to `.gsd/`:
+
+```
+.gsd/
+  PROJECT.md
+  REQUIREMENTS.md
+  DECISIONS.md
+  QUEUE.md                    # Generated from milestones
+  STATE.md                    # Generated from state derivation
+  milestones/
+    M001/
+      M001-CONTEXT.md
+      M001-ROADMAP.md
+      M001-SUMMARY.md         # If milestone complete
+      S01/
+        S01-PLAN.md
+        S01-SUMMARY.md
+        S01-UAT.md            # Generated stub if missing
+        tasks/
+          T001-PLAN.md
+          T001-SUMMARY.md
+          T002-PLAN.md
+          T002-SUMMARY.md
+      S02/
+        ...
+```
+
+## Migration Preview
+
+Before writing, GSD shows a confirmation dialog:
+
+```
+Migration preview
+
+Milestones: 2
+Slices: 5 (3 done — 60%)
+Tasks: 18 (12 done — 67%)
+Requirements: 8 (5 validated, 2 active, 1 deferred)
+
+⚠ A .gsd directory already exists in the current working directory — it will be overwritten.
+
+Actions:
+  → Write .gsd directory      Migrate 2 milestone(s) to /Users/you/project/.gsd
+    Cancel                    Exit without writing anything
+
+Run /gsd migrate again when ready.
+```
+
+**User selects:**
+- **Write .gsd directory** - Proceeds with migration
+- **Cancel** - Aborts, no files written
+
+## Example Session
+
+```bash
+$ cd ~/old-project
+$ ls
+.planning/  src/  package.json
+
+$ /gsd migrate
+
+# Validation runs
+⚠ M001/S02/tasks/T003-RESULT.md missing (will create placeholder)
+✓ No fatal issues found
+
+# Preview shows
+Milestone preview
+Milestones: 1
+Slices: 2 (1 done — 50%)
+Tasks: 5 (3 done — 60%)
+
+# Confirm
+> Write .gsd directory
+
+# Migration completes
+✓ Migration complete — 23 file(s) written to .gsd/
+
+# Optional review offer
+Migration written
+
+23 files written to .gsd/
+
+The agent can now review the migrated output against GSD-2 standards —
+checking structure, content quality, deriveState() round-trip, and
+requirement statuses. It will fix minor issues in-place.
+
+Actions:
+  → Review migration         Agent audits the .gsd output and reports PASS/FAIL per category
+    Skip review              Trust the migration output as-is
+
+# Select review
+> Review migration
+
+# Agent reviews and reports
+Agent: Reviewing migration against GSD-2 standards...
+
+Structure check: PASS
+- All expected files present
+- Directory hierarchy correct
+
+Frontmatter check: PASS  
+- All slice summaries have required fields
+- Task summaries have completion metadata
+
+State derivation: PASS
+- deriveState() returns expected phase
+- Active milestone: M001
+- Active slice: S02
+
+Requirements: PASS
+- All requirements have owners
+- No orphaned requirements
+
+Fixed issues:
+- Added missing UAT stub for S01
+- Normalized checkbox format in M001-ROADMAP.md
+
+Migration review: PASS
+Ready to run /gsd auto to continue work.
+
+$ /gsd auto
+# Picks up where .planning left off
+```
+
+## Post-Migration Review
+
+The optional agent review audits migrated output:
+
+**Categories checked:**
+
+1. **Structure**
+   - Required files exist
+   - Directory hierarchy matches spec
+   - No orphaned files
+
+2. **Frontmatter**
+   - All summaries have required fields
+   - `id`, `parent`, `milestone` present
+   - Dates are ISO 8601
+
+3. **State Derivation**
+   - `deriveState()` returns valid phase
+   - Active milestone/slice match roadmap
+   - No blocking issues
+
+4. **Requirements**
+   - All requirements have owners
+   - Statuses are valid
+   - No broken references
+
+5. **Content Quality**
+   - Summaries are non-empty
+   - Plans have task lists
+   - UAT files exist for completed slices
+
+**Agent fixes minor issues:**
+- Missing UAT stubs
+- Inconsistent checkbox format
+- Missing frontmatter fields
+- Invalid requirement statuses
+
+**Agent reports failures:**
+- Malformed roadmap (can't auto-fix)
+- Circular dependencies
+- Missing critical files
+
+## Source Implementation
+
+The migrate command is implemented in `migrate/command.ts:77`:
+
+```typescript
+export async function handleMigrate(
+  args: string,
+  ctx: ExtensionCommandContext,
+  pi: ExtensionAPI,
+): Promise<void> {
+  // Resolve source path
+  let sourcePath = resolve(process.cwd(), args.trim() || ".");
+  if (!sourcePath.endsWith(".planning")) {
+    sourcePath = join(sourcePath, ".planning");
+  }
+
+  if (!existsSync(sourcePath)) {
+    ctx.ui.notify(
+      `Directory not found: ${sourcePath}\n\n` +
+      'Migration converts a .planning/ directory (from older GSD versions) into .gsd/ format.',
+      "error",
+    );
+    return;
+  }
+
+  // Validate
+  const validation = await validatePlanningDirectory(sourcePath);
+  if (!validation.valid) {
+    ctx.ui.notify("Migration blocked — fix the fatal issues above before retrying.", "error");
+    return;
+  }
+
+  // Parse → Transform → Preview
+  const parsed = await parsePlanningDirectory(sourcePath);
+  const project = transformToGSD(parsed);
+  const preview = generatePreview(project);
+
+  // Confirmation
+  const choice = await showNextAction(ctx, {
+    title: "Migration preview",
+    summary: [
+      `Milestones: ${preview.milestoneCount}`,
+      `Slices: ${preview.totalSlices} (${preview.doneSlices} done)`,
+      `Tasks: ${preview.totalTasks} (${preview.doneTasks} done)`,
+    ],
+    actions: [
+      { id: "confirm", label: "Write .gsd directory", recommended: true },
+      { id: "cancel", label: "Cancel" },
+    ],
+  });
+
+  if (choice !== "confirm") {
+    ctx.ui.notify("Migration cancelled — no files were written.", "info");
+    return;
+  }
+
+  // Write
+  const result = await writeGSDDirectory(project, process.cwd());
+  ctx.ui.notify(`✓ Migration complete — ${result.paths.length} file(s) written to .gsd/`, "info");
+
+  // Offer review
+  const reviewChoice = await showNextAction(ctx, {
+    title: "Migration written",
+    summary: [
+      `${result.paths.length} files written to .gsd/`,
+      "",
+      "The agent can now review the migrated output against GSD-2 standards.",
+    ],
+    actions: [
+      { id: "review", label: "Review migration", recommended: true },
+      { id: "skip", label: "Skip review" },
+    ],
+  });
+
+  if (reviewChoice === "review") {
+    dispatchReview(pi, sourcePath, join(process.cwd(), ".gsd"), preview);
+  }
+}
+```
+
+## Migration Modules
+
+The pipeline is split across modules:
+
+- **validator.ts** - Phase 1: Validation rules
+- **parser.ts** - Phase 2: Parse .planning files
+- **transformer.ts** - Phase 3: Convert to GSD 2.0
+- **writer.ts** - Phase 4: Write .gsd files
+- **preview.ts** - Generate preview stats
+- **command.ts** - Orchestration and UX
+
+## Edge Cases
+
+### Missing Files
+
+Migration creates placeholders:
+
+```typescript
+if (!sliceSummaryExists && sliceIsDone) {
+  createSliceSummaryStub(milestoneId, sliceId);
+}
+
+if (!sliceUatExists && sliceIsDone) {
+  createSliceUatStub(milestoneId, sliceId);
+}
+```
+
+### Malformed Checkboxes
+
+Normalizes to GSD 2.0 format:
+
+```typescript
+function normalizeCheckboxes(content: string): string {
+  return content
+    .replace(/^\s*-\s*\[x\]\s+\*\*/gim, "- [x] **")  // Done
+    .replace(/^\s*-\s*\[ \]\s+\*\*/gim, "- [ ] **");  // Todo
+}
+```
+
+### Circular Dependencies
+
+Detected during validation:
+
+```typescript
+function detectCircularDeps(milestones: ParsedMilestone[]): string[] {
+  const graph = buildDependencyGraph(milestones);
+  return findCycles(graph);
+}
+```
+
+Blocks migration if found.
+
+## Best Practices
+
+<Tip>
+**Run validation first.** Check for issues before migrating: Look at validation warnings to know what will be auto-fixed.
+</Tip>
+
+<Info>
+**Backup `.planning/` before migrating.** The migration doesn't modify source files, but keep a backup just in case.
+</Info>
+
+<Warning>
+**Don't run migration twice.** It will overwrite `.gsd/`. If migration fails, fix issues and re-run - don't manually edit `.gsd/` and then re-migrate.
+</Warning>
+
+## Troubleshooting
+
+### Migration fails validation
+
+**Symptom:** Fatal errors prevent migration
+
+**Solution:**
+```bash
+# Check specific error
+/gsd migrate
+# ✖ Fatal: ROADMAP.md is malformed
+
+# Fix source file
+code .planning/M001/ROADMAP.md
+
+# Re-validate
+/gsd migrate
+```
+
+### Migrated .gsd/ doesn't work
+
+**Symptom:** `/gsd auto` fails after migration
+
+**Solution:**
+```bash
+# Run doctor
+/gsd doctor audit
+
+# Fix issues
+/gsd doctor fix
+
+# Check state
+/gsd status
+
+# If still broken, re-migrate
+rm -rf .gsd/
+/gsd migrate
+```
+
+### Review finds failures
+
+**Symptom:** Agent review reports FAIL for a category
+
+**Solution:**
+
+The agent will suggest fixes. Common failures:
+- **Circular dependencies** - Manually break the cycle in `.planning/`, re-migrate
+- **Missing critical files** - Add them to `.planning/`, re-migrate
+- **Malformed roadmap** - Fix syntax in `.planning/ROADMAP.md`, re-migrate
+
+## Related Commands
+
+- [/gsd doctor](/commands/gsd-doctor) - Audit migrated state
+- [/gsd auto](/commands/gsd-auto) - Continue work after migration
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Doctor Command" icon="stethoscope" href="/commands/gsd-doctor">
+    Audit and fix migrated state
+  </Card>
+  <Card title="Getting Started" icon="play" href="/introduction">
+    Learn the GSD 2.0 workflow
+  </Card>
+</CardGroup>

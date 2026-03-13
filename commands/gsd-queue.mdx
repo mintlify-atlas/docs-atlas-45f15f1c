@@ -1,0 +1,450 @@
+---
+title: /gsd queue
+description: View and manage the milestone queue
+---
+
+The `/gsd queue` command shows the milestone queue with status, priority, and dependencies. It provides a high-level view of planned work.
+
+## Syntax
+
+```bash
+/gsd queue
+```
+
+## Purpose
+
+Use `/gsd queue` to:
+
+- View all planned milestones
+- Check milestone status (active, queued, complete)
+- Review dependencies and prerequisites
+- Understand project roadmap at a glance
+
+## Example Output
+
+```
+Milestone Queue
+
+Active:
+● M001: Build authentication system (active - S03 in progress)
+  - 2/3 slices complete
+  - Current: S03 - Add session management
+
+Queued:
+○ M002: Implement task management API
+  - Depends on: M001
+  - 0/4 slices planned
+
+○ M003: Add real-time notifications  
+  - Depends on: M002
+  - 0/2 slices planned
+
+Deferred:
+○ M004: Admin dashboard
+  - Low priority
+  - Waiting on user feedback
+
+Complete:
+✓ M000: Project setup and infrastructure
+  - Completed: 2026-03-10
+  - 3/3 slices delivered
+
+Run /gsd auto to continue, or /gsd discuss to add milestones.
+```
+
+## Queue Structure
+
+The queue is stored in `.gsd/QUEUE.md`:
+
+```markdown
+# Milestone Queue
+
+Priority-ordered list of planned milestones.
+
+## Active
+
+- **M001:** Build authentication system (active)
+  - Priority: P0 (critical)
+  - Slices: 3 planned
+  - Dependencies: None (first milestone)
+
+## Queued
+
+- **M002:** Implement task management API
+  - Priority: P1 (high)
+  - Slices: 4 planned
+  - Dependencies: M001 (needs auth middleware)
+
+- **M003:** Add real-time notifications
+  - Priority: P1 (high)  
+  - Slices: 2 planned
+  - Dependencies: M002 (needs task model)
+
+## Deferred
+
+- **M004:** Admin dashboard
+  - Priority: P2 (nice-to-have)
+  - Slices: TBD
+  - Dependencies: M001, M002
+  - Notes: Waiting on user feedback from beta testing
+
+## Complete
+
+- **M000:** Project setup and infrastructure
+  - Completed: 2026-03-10
+  - Slices: 3/3 delivered
+  - Key outcomes: Docker config, CI/CD, database schema
+
+## Notes
+
+- M002 blocks M003 (task model is prerequisite)
+- M004 low priority, defer until M001-M003 complete
+- Consider splitting M002 if scope grows
+```
+
+## Implementation
+
+The queue command is implemented in `guided-flow.ts:300`:
+
+```typescript
+export async function showQueue(
+  ctx: ExtensionCommandContext,
+  pi: ExtensionAPI,
+  base: string,
+): Promise<void> {
+  const state = await deriveState(base);
+  
+  if (state.registry.length === 0) {
+    ctx.ui.notify("No milestones found. Run /gsd discuss to start.", "info");
+    return;
+  }
+
+  const queueFile = resolveGsdRootFile(base, "QUEUE");
+  const queueContent = await loadFile(queueFile);
+  
+  if (!queueContent) {
+    // Generate queue from registry
+    const generated = buildQueueFromRegistry(state.registry);
+    ctx.ui.notify(generated, "info");
+  } else {
+    // Show existing queue
+    ctx.ui.notify(queueContent, "info");
+  }
+}
+```
+
+## Queue Management
+
+### Adding Milestones
+
+Use `/gsd discuss` to add new milestones:
+
+```bash
+/gsd discuss
+# Discuss new milestone
+# Agent appends to QUEUE.md and creates M00X-CONTEXT.md
+```
+
+### Reordering Milestones
+
+Manually edit `.gsd/QUEUE.md`:
+
+```bash
+# Open in editor
+code .gsd/QUEUE.md
+
+# Reorder under ## Queued
+# Save
+
+# Auto mode respects the new order
+/gsd auto
+```
+
+### Marking Complete
+
+Auto mode automatically moves milestones to "Complete" when done:
+
+```typescript
+if (isMilestoneComplete(roadmap)) {
+  // Move from Active to Complete
+  updateQueueStatus(milestoneId, "complete");
+}
+```
+
+## State Integration
+
+The queue integrates with the state machine:
+
+```typescript
+export interface MilestoneRegistryEntry {
+  id: string;           // M001, M002, etc.
+  title: string;        // "Build authentication system"
+  status: "active" | "queued" | "complete";
+  contextPath?: string; // Path to CONTEXT.md
+  roadmapPath?: string; // Path to ROADMAP.md
+  summaryPath?: string; // Path to SUMMARY.md (when complete)
+}
+
+export interface GSDState {
+  registry: MilestoneRegistryEntry[];
+  activeMilestone: MilestoneRegistryEntry | null;
+  // ...
+}
+```
+
+The `deriveState` function builds the registry by scanning `.gsd/milestones/`:
+
+```typescript
+function buildRegistry(base: string): MilestoneRegistryEntry[] {
+  const mDir = milestonesDir(base);
+  const entries: MilestoneRegistryEntry[] = [];
+  
+  for (const dir of readdirSync(mDir)) {
+    if (!dir.match(/^M\d+$/)) continue;
+    
+    const mid = dir;
+    const contextPath = resolveMilestoneFile(base, mid, "CONTEXT");
+    const roadmapPath = resolveMilestoneFile(base, mid, "ROADMAP");
+    const summaryPath = resolveMilestoneFile(base, mid, "SUMMARY");
+    
+    // Determine status
+    let status: "active" | "queued" | "complete";
+    if (summaryPath && existsSync(summaryPath)) {
+      status = "complete";
+    } else if (roadmapPath && existsSync(roadmapPath)) {
+      const roadmap = parseRoadmap(readFileSync(roadmapPath, "utf-8"));
+      status = roadmap.slices.some(s => !s.done) ? "active" : "complete";
+    } else {
+      status = "queued";
+    }
+    
+    // Extract title from CONTEXT or ROADMAP
+    const title = extractTitleFromContext(contextPath) || 
+                  extractTitleFromRoadmap(roadmapPath) || 
+                  mid;
+    
+    entries.push({ id: mid, title, status, contextPath, roadmapPath, summaryPath });
+  }
+  
+  return entries.sort((a, b) => a.id.localeCompare(b.id));
+}
+```
+
+## Dependencies
+
+Milestones can depend on others:
+
+```markdown
+## Queued
+
+- **M002:** Implement task management API
+  - Dependencies: M001 (needs auth middleware)
+```
+
+Auto mode checks dependencies before starting:
+
+```typescript
+function checkDependencies(milestone: string, registry: MilestoneRegistryEntry[]): string[] {
+  const queueFile = resolveGsdRootFile(process.cwd(), "QUEUE");
+  const content = readFileSync(queueFile, "utf-8");
+  
+  // Parse dependencies from QUEUE.md
+  const regex = new RegExp(`\\*\\*${milestone}:\\*\\*[^]*?Dependencies: ([^\n]+)`);
+  const match = content.match(regex);
+  if (!match) return [];
+  
+  const deps = match[1]
+    .split(",")
+    .map(d => d.trim())
+    .filter(d => d.match(/^M\d+/));
+  
+  // Check if all deps are complete
+  const incomplete = deps.filter(dep => {
+    const entry = registry.find(e => e.id === dep);
+    return entry?.status !== "complete";
+  });
+  
+  return incomplete;
+}
+```
+
+If dependencies are incomplete, auto mode skips the milestone:
+
+```typescript
+const incomplete = checkDependencies(mid, state.registry);
+if (incomplete.length > 0) {
+  ctx.ui.notify(
+    `Milestone ${mid} blocked by incomplete dependencies: ${incomplete.join(", ")}`,
+    "warning",
+  );
+  // Skip to next milestone in queue
+}
+```
+
+## Priority
+
+Milestones have implicit priority by queue position:
+
+```markdown
+## Queued
+
+- **M002:** High priority (top of queue)
+- **M003:** Medium priority
+- **M004:** Low priority (bottom of queue)
+```
+
+Auto mode processes in order:
+
+1. Complete active milestone
+2. Pick first queued milestone (top of Queued section)
+3. Check dependencies
+4. Start planning if dependencies met
+
+## Example Workflows
+
+### Viewing the Queue
+
+```bash
+# Quick check
+/gsd queue
+
+# See:
+# - M001 active (2/3 slices)
+# - M002, M003 queued
+# - M004 deferred
+```
+
+### Adding a Milestone
+
+```bash
+/gsd discuss
+# "I need to add email notifications"
+
+# Agent creates M005-CONTEXT.md and updates QUEUE.md
+
+/gsd queue
+# See: M005 now appears in Queued section
+```
+
+### Reordering
+
+```bash
+# M003 is more urgent than M002
+code .gsd/QUEUE.md
+
+# Move M003 above M002 in ## Queued section
+# Save
+
+/gsd queue
+# Verify new order
+
+/gsd auto
+# Auto mode will do M001 → M003 → M002 (respects new order)
+```
+
+### Deferring
+
+```bash
+code .gsd/QUEUE.md
+
+# Move M004 from ## Queued to ## Deferred
+# Add notes explaining why
+# Save
+
+/gsd queue
+# M004 now shows as deferred
+```
+
+## QUEUE.md Template
+
+When starting a project, the discuss flow creates QUEUE.md:
+
+```markdown
+# Milestone Queue
+
+Priority-ordered list of planned milestones.
+
+## Active
+
+- **M001:** {{title}}
+  - Priority: P0 (critical)
+  - Slices: {{sliceCount}} planned
+  - Dependencies: None (first milestone)
+
+## Queued
+
+_(Empty - add milestones with /gsd discuss)_
+
+## Deferred
+
+_(None yet)_
+
+## Complete
+
+_(None yet)_
+
+## Notes
+
+- Run /gsd auto to start executing M001
+- Add new milestones with /gsd discuss
+- Reorder by editing this file directly
+```
+
+## Best Practices
+
+<Tip>
+**Keep the queue small.** 3-5 active/queued milestones is ideal. Break large projects into separate phases rather than queueing 20+ milestones.
+</Tip>
+
+<Info>
+**Document dependencies explicitly.** Even if obvious, note them in QUEUE.md. Auto mode doesn't infer dependencies - it relies on your documentation.
+</Info>
+
+<Warning>
+**Don't delete completed milestones from QUEUE.md.** Move them to the Complete section to preserve project history.
+</Warning>
+
+## Troubleshooting
+
+### Queue shows wrong status
+
+**Symptom:** M001 shows as "queued" but is actually active
+
+**Solution:**
+```bash
+# Rebuild state
+/gsd doctor fix
+
+# Check again
+/gsd queue
+```
+
+### Auto mode skips a milestone
+
+**Symptom:** Auto mode jumps from M001 to M003, skipping M002
+
+**Solution:**
+```bash
+# Check dependencies
+cat .gsd/QUEUE.md | grep -A5 "M002"
+
+# Likely: M002 depends on incomplete milestone
+# Or: M002 is in Deferred section
+```
+
+## Related Commands
+
+- [/gsd discuss](/commands/gsd-discuss) - Add milestones to queue
+- [/gsd status](/commands/gsd-status) - View active milestone progress
+- [/gsd auto](/commands/gsd-auto) - Execute queued milestones
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Discuss Command" icon="comments" href="/commands/gsd-discuss">
+    Learn how to add milestones
+  </Card>
+  <Card title="State Machine" icon="diagram-project" href="/advanced/state-management">
+    Understand milestone lifecycle
+  </Card>
+</CardGroup>

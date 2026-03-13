@@ -1,80 +1,356 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get up and running with GSD 2 in minutes"
 ---
 
-## Get started in three steps
+This guide will take you from installation to running your first autonomous coding session.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, make sure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+- **Node.js** ≥ 20.6.0 (22+ recommended)
+- **npm** (comes with Node.js)
+- **Git** (installed and configured)
+- **An LLM provider account** (Anthropic, OpenAI, Google, OpenRouter, etc.)
+
+## Install GSD
+
+Install GSD globally via npm:
+
+<CodeGroup>
+
+```bash npm
+npm install -g gsd-pi
+```
+
+```bash yarn
+yarn global add gsd-pi
+```
+
+```bash pnpm
+pnpm add -g gsd-pi
+```
+
+</CodeGroup>
+
+Verify the installation:
+
+```bash
+gsd --version
+```
+
+## First Launch and Setup
+
+Run GSD for the first time:
+
+```bash
+gsd
+```
+
+You'll see the GSD setup wizard. It will guide you through:
+
+<Steps>
+  <Step title="Choose LLM Provider">
+    Select from 20+ providers (Anthropic, OpenAI, Google, OpenRouter, GitHub Copilot, etc.)
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    - **OAuth providers** (Claude Max, GitHub Copilot): Automatic authentication
+    - **API key providers**: Paste your API key when prompted
+  </Step>
+  
+  <Step title="Configure Optional Tools (Optional)">
+    Set up API keys for enhanced capabilities:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    - **Brave Search** - Web research
+    - **Context7** - Library documentation
+    - **Jina** - Page extraction
+    - **Slack/Discord** - Remote questions
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    Press Enter to skip any step.
+  </Step>
+  
+  <Step title="Model Selection">
+    GSD auto-selects a default model. You can change it anytime with `/model`
+  </Step>
+</Steps>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+<Info>
+If you have an existing Pi installation, your credentials are imported automatically.
+</Info>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+## Your First Project
 
-### Step 3: Go live
+Let's create a simple project and run GSD in step mode.
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+<Steps>
+  <Step title="Create a test project">
+    ```bash
+    mkdir my-gsd-project
+    cd my-gsd-project
+    git init
+    ```
+  </Step>
+  
+  <Step title="Start GSD">
+    ```bash
+    gsd
+    ```
+    
+    You'll see the interactive GSD session.
+  </Step>
+  
+  <Step title="Initialize with /gsd">
+    Type `/gsd` in the session:
+    
+    ```
+    /gsd
+    ```
+    
+    Since there's no `.gsd/` directory, GSD starts the discussion flow.
+  </Step>
+  
+  <Step title="Describe your project">
+    GSD will ask you about your project:
+    
+    - What are you building?
+    - What's the tech stack?
+    - What's the first milestone?
+    
+    Example response:
+    ```
+    I'm building a simple todo list CLI tool in Node.js.
+    Tech stack: Node.js, TypeScript, Commander.js for CLI parsing.
+    First milestone: Basic CRUD operations (add, list, complete, delete tasks).
+    ```
+  </Step>
+  
+  <Step title="GSD creates the structure">
+    After the discussion, GSD writes:
+    - `.gsd/PROJECT.md` - Project vision and context
+    - `.gsd/M001-ROADMAP.md` - First milestone plan with slices
+    - `.gsd/M001-CONTEXT.md` - Background from your discussion
+  </Step>
+</Steps>
 
-## Next steps
+## Two Ways to Work
 
-Now that you have your docs running, explore these key features:
+### Step Mode (Interactive)
+
+Execute one unit at a time with control:
+
+```bash
+gsd
+/gsd
+```
+
+The wizard shows you:
+- Current phase (Research → Plan → Execute)
+- Progress through the milestone
+- What just completed
+- What happens next
+
+Press Enter to advance to the next step.
+
+### Auto Mode (Autonomous)
+
+Walk away and come back to completed work:
+
+```bash
+gsd
+/gsd auto
+```
+
+GSD will:
+1. **Research** - Scout the codebase and gather context
+2. **Plan** - Break down the slice into tasks
+3. **Execute** - Run each task in a fresh context window
+4. **Verify** - Check that deliverables exist and work
+5. **Complete** - Write summary, create UAT script, commit
+6. **Reassess** - Update the roadmap based on learnings
+7. **Repeat** - Move to the next slice automatically
+
+Press `Escape` to pause auto mode anytime.
+
+## The Two-Terminal Workflow
+
+The real power of GSD: run auto mode in one terminal, steer from another.
+
+**Terminal 1 — let it build:**
+
+```bash
+gsd
+/gsd auto
+```
+
+**Terminal 2 — steer while it works:**
+
+```bash
+gsd
+
+# Check progress
+/gsd status
+
+# Discuss architecture
+/gsd discuss
+
+# Queue next milestone
+/gsd queue
+```
+
+Both terminals read and write the same `.gsd/` files. Your decisions in Terminal 2 are picked up at the next phase boundary.
+
+<Tip>
+This workflow is perfect for long-running builds. Start auto mode before lunch, check progress from your phone, queue refinements, and come back to completed work.
+</Tip>
+
+## Monitor Progress
+
+### Dashboard Overlay
+
+Press `Ctrl+Alt+G` to toggle the dashboard overlay:
+
+- Current milestone, slice, and task
+- Auto mode phase and elapsed time
+- Cost breakdown by phase and model
+- Budget projections
+- Completed units
+
+### Status Command
+
+```bash
+/gsd status
+```
+
+Shows:
+- Milestone progress
+- Current slice and task
+- Cost and token usage
+- Recent activity
+
+## Essential Commands
+
+| Command | Description |
+|---------|-------------|
+| `/gsd` | Step mode — interactive execution |
+| `/gsd auto` | Autonomous mode — walk away |
+| `/gsd stop` | Stop auto mode gracefully |
+| `/gsd status` | Progress dashboard |
+| `/gsd discuss` | Discuss architecture |
+| `/gsd queue` | Queue future milestones |
+| `/gsd prefs` | Configure models, budgets, timeouts |
+| `/model` | Switch LLM provider/model |
+| `/exit` | Exit GSD |
+| `Ctrl+Alt+G` | Toggle dashboard overlay |
+| `Escape` | Pause auto mode |
+
+## Configuration
+
+### Per-Phase Model Selection
+
+Edit `~/.gsd/preferences.md` or `.gsd/preferences.md`:
+
+```yaml
+---
+version: 1
+models:
+  research: claude-sonnet-4-6
+  planning: claude-opus-4-6
+  execution: claude-sonnet-4-6
+  completion: claude-sonnet-4-6
+---
+```
+
+Use expensive models (Opus) where quality matters (planning) and cheaper models (Sonnet) where speed matters.
+
+### Budget Ceiling
+
+Set a spending limit:
+
+```yaml
+---
+version: 1
+budget_ceiling: 50.00  # USD
+---
+```
+
+Auto mode pauses when the ceiling is reached.
+
+### Timeouts
+
+Adjust auto mode supervision timeouts:
+
+```yaml
+---
+version: 1
+auto_supervisor:
+  soft_timeout_minutes: 20
+  idle_timeout_minutes: 10
+  hard_timeout_minutes: 30
+---
+```
+
+## What Happens Under the Hood
+
+When you run `/gsd auto`, GSD:
+
+1. **Fresh session per unit** - Every task gets a clean 200k-token context window
+2. **Context pre-loading** - Inlines task plans, summaries, dependencies into the dispatch prompt
+3. **Git branch-per-slice** - Creates `gsd/M001/S01` branch, commits atomically
+4. **Crash recovery** - Lock files track progress, session forensics on crash
+5. **Stuck detection** - Retries once with diagnostics if the LLM doesn't produce expected artifacts
+6. **Timeout supervision** - Soft warning → idle watchdog → hard timeout with recovery
+7. **Cost tracking** - Per-unit token and cost breakdown by phase and model
+8. **Adaptive replanning** - Reassesses roadmap after each slice completes
+
+## Next Steps
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Core Concepts" icon="book" href="/concepts/architecture">
+    Understand how GSD structures work and manages context
+  </Card>
+  <Card title="Step Mode Guide" icon="shoe-prints" href="/guide/step-mode">
+    Master interactive execution with full control
+  </Card>
+  <Card title="Auto Mode Guide" icon="forward" href="/guide/auto-mode">
+    Run fully autonomous coding sessions
+  </Card>
+  <Card title="Commands Reference" icon="terminal" href="/commands/overview">
+    Complete command reference for all operations
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+## Troubleshooting
+
+### "No LLM provider configured"
+
+Run the setup wizard again:
+
+```bash
+gsd config
+```
+
+### "Failed to derive state"
+
+Check `.gsd/` directory integrity:
+
+```bash
+/gsd doctor
+```
+
+### Auto mode stuck
+
+Press `Escape` to pause, then check:
+
+```bash
+/gsd status
+```
+
+Review the current unit's plan and expected artifacts. Resume with `/gsd auto`.
+
+### Cost tracking not showing
+
+Make sure you've run at least one unit. Cost data is written to `.gsd/metrics-ledger.json` after each unit completes.
+
+<Card title="Need more help?" icon="life-ring" href="/migration/troubleshooting">
+  Check the full troubleshooting guide
+</Card>

@@ -1,0 +1,416 @@
+---
+title: Browser Tools
+description: Automate and test web UIs with full browser interaction capabilities
+---
+
+The Browser Tools extension gives the agent complete control over a Chromium browser instance via Playwright. It enables automated testing, UI verification, and web scraping without requiring human oversight.
+
+## Overview
+
+Browser Tools provides a comprehensive browser automation toolkit with:
+
+- **Visual feedback**: Screenshots on navigation, accessibility snapshots on every action
+- **Smart waits**: Adaptive DOM settling instead of blocking on networkidle
+- **Error surfacing**: Automatic capture of console errors, network failures, and JS dialogs
+- **Multi-page support**: Tab management and window switching
+- **Element references**: Stable ref system for interacting with page elements
+
+## Key Features
+
+### Architecture
+
+- Single shared Browser + BrowserContext + Page per session
+- Console, network, and dialog events buffered in memory
+- Browser launched in headed mode (visible window)
+- Automatic cleanup on session shutdown
+
+### Smart Defaults
+
+- Screenshots capped at 1568px max dimension (Anthropic API safety)
+- JPEG for viewport screenshots (smaller), PNG for element crops (transparency)
+- Auto-handles JS dialogs (alert/confirm/prompt) to prevent page freezes
+- Auto-switches to new tabs (popups, `target="_blank"`)
+
+## Core Tools
+
+### Navigation
+
+```typescript
+// Navigate to a URL
+browser_navigate({ url: "https://example.com" })
+
+// Navigate with wait options
+browser_navigate({
+  url: "https://example.com",
+  waitUntil: "domcontentloaded",
+  timeout: 10000
+})
+```
+
+**Returns**: Page title, URL, screenshot, and accessibility snapshot.
+
+### Element Discovery
+
+```typescript
+// Snapshot interactive elements with refs
+browser_snapshot_refs({
+  interactiveOnly: true,
+  limit: 100
+})
+
+// Snapshot with mode-based filtering
+browser_snapshot_refs({
+  mode: "form",  // or "dialog", "navigation", etc.
+  limit: 50
+})
+
+// Snapshot within a selector scope
+browser_snapshot_refs({
+  selector: '[role="dialog"]',
+  limit: 30
+})
+```
+
+**Returns**: Numbered list of elements with:
+- `@e1`, `@e2`, etc. refs for interaction
+- Role, name, visibility, enabled state
+- Selector hints for targeting
+
+### Interaction
+
+```typescript
+// Click an element by ref
+browser_click({ ref: "@e5" })
+
+// Click with verification
+browser_click({
+  ref: "@e5",
+  expect: { url: "https://example.com/dashboard" }
+})
+
+// Fill input field
+browser_fill({
+  ref: "@e12",
+  text: "user@example.com"
+})
+
+// Press keyboard keys
+browser_press({
+  ref: "@e12",
+  key: "Enter"
+})
+```
+
+### State Inspection
+
+```typescript
+// Get accessibility tree
+browser_get_accessibility_tree({
+  selector: "main",  // optional scope
+  source: "full_page"
+})
+
+// Assert page state
+browser_assert({
+  checks: [
+    { kind: "url", text: "/dashboard" },
+    { kind: "selector_visible", selector: ".success-message" },
+    { kind: "text_present", text: "Welcome back" }
+  ]
+})
+
+// Find elements
+browser_find({
+  needle: "Submit",
+  threshold: "contains"
+})
+```
+
+## Advanced Features
+
+### Multi-Page Management
+
+```typescript
+// List all pages
+browser_list_pages()
+
+// Switch to a page
+browser_switch_page({ pageId: 2 })
+
+// Close a page
+browser_close_page({ pageId: 2 })
+```
+
+### Frame Navigation
+
+```typescript
+// Switch to an iframe
+browser_select_frame({
+  name: "payment-form"
+})
+
+// Return to main page
+browser_select_frame({ frameContext: "page" })
+```
+
+### Network & Console Monitoring
+
+```typescript
+// Get console logs
+browser_get_console_logs({
+  sinceActionId: 5,  // only new logs
+  types: ["error", "warning"]
+})
+
+// Get network logs
+browser_get_network_logs({
+  sinceActionId: 5,
+  statusFilter: "4xx-5xx"
+})
+
+// Get dialog logs (alert/confirm/prompt)
+browser_get_dialog_logs({ sinceActionId: 5 })
+```
+
+### Screenshots & Tracing
+
+```typescript
+// Take a screenshot
+browser_screenshot({
+  fullPage: false,
+  type: "jpeg",
+  quality: 80
+})
+
+// Start trace recording
+browser_trace_start({
+  name: "checkout-flow",
+  screenshots: true
+})
+
+// Stop and save trace
+browser_trace_stop()
+```
+
+### HAR Export
+
+```typescript
+// Export network traffic as HAR
+browser_export_har({
+  name: "api-requests"
+})
+```
+
+## Snapshot Modes
+
+The `browser_snapshot_refs` tool supports specialized modes for different UI contexts:
+
+| Mode | Focus | Use Case |
+|------|-------|----------|
+| `form` | Form inputs, labels, buttons | Filling out forms |
+| `dialog` | Modal dialogs and their interactive children | Working with popups |
+| `navigation` | Links, nav elements, menus | Browsing and navigation |
+| `errors` | Error messages, alerts | Debugging failures |
+| `interactive` | All interactive elements (default) | General interaction |
+| `visible_only` | All visible elements | Page structure inspection |
+
+## Verification System
+
+Browser Tools includes built-in verification for clicks:
+
+```typescript
+browser_click({
+  ref: "@e10",
+  expect: {
+    url: "/success",              // URL changed
+    selector: ".confirmation",   // Element appeared
+    ariaExpanded: "true"         // State changed
+  }
+})
+```
+
+Returns:
+- `PASS` if any check succeeded
+- `SOFT-FAIL` if no observable change
+- Retry hint if verification failed
+
+## Artifacts
+
+All browser artifacts are saved to `.artifacts/browser/`:
+
+- **Screenshots**: `screenshot-{timestamp}.{jpeg|png}`
+- **Traces**: `trace-{name}-{timestamp}.zip`
+- **HAR files**: `{name}-{timestamp}.har`
+- **Session HAR**: `session.har` (all network traffic)
+
+## Best Practices
+
+### 1. Use Refs for Stability
+
+<CodeGroup>
+```typescript
+// Good: Use refs from snapshot
+browser_snapshot_refs({ mode: "form" })
+browser_fill({ ref: "@e5", text: "value" })
+```
+
+```typescript
+// Avoid: Hardcoded selectors (brittle)
+browser_fill({ selector: "#email", text: "value" })
+```
+</CodeGroup>
+
+### 2. Verify After Actions
+
+<CodeGroup>
+```typescript
+// Good: Built-in verification
+browser_click({
+  ref: "@e10",
+  expect: { url: "/dashboard" }
+})
+```
+
+```typescript
+// Alternative: Explicit assertion
+browser_click({ ref: "@e10" })
+browser_assert({
+  checks: [{ kind: "url", text: "/dashboard" }]
+})
+```
+</CodeGroup>
+
+### 3. Scope Snapshots
+
+<CodeGroup>
+```typescript
+// Good: Narrow scope for dialogs
+browser_snapshot_refs({
+  mode: "dialog",
+  limit: 20
+})
+```
+
+```typescript
+// Avoid: Full page snapshot for small interactions
+browser_snapshot_refs({
+  interactiveOnly: true,
+  limit: 500  // Too many!
+})
+```
+</CodeGroup>
+
+### 4. Use Appropriate Wait Strategies
+
+```typescript
+// Default: Fast, adaptive settling
+browser_navigate({ url: "https://example.com" })
+
+// When needed: Explicit wait
+browser_wait_for({
+  condition: "selector",
+  value: ".loaded",
+  timeout: 5000
+})
+```
+
+## Configuration
+
+### Environment Variables
+
+```bash
+# Use custom browser path (optional)
+export BROWSER_PATH=/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome
+```
+
+### Browser Launch Options
+
+The browser launches with:
+
+```javascript
+{
+  headless: false,              // Visible window
+  deviceScaleFactor: 2,        // Retina display
+  viewport: { width: 1280, height: 800 },
+  recordHar: { mode: "minimal" } // Automatic HAR recording
+}
+```
+
+## Troubleshooting
+
+### Screenshots Not Appearing
+
+- Check `.artifacts/browser/` directory exists
+- Verify screenshot dimensions aren't exceeding 1568px
+- Ensure page has loaded (wait for `domcontentloaded`)
+
+### Refs Going Stale
+
+```
+Ref @e5 could not be resolved (path mismatch)
+```
+
+**Solution**: Re-snapshot after DOM changes:
+
+```typescript
+browser_click({ ref: "@e5" })  // Causes page change
+browser_snapshot_refs({ mode: "form" })  // Refresh refs
+```
+
+### Timeouts on Slow Pages
+
+```typescript
+// Increase timeout for slow navigation
+browser_navigate({
+  url: "https://slow-site.com",
+  timeout: 30000
+})
+
+// Or wait explicitly
+browser_wait_for({
+  condition: "url",
+  value: "loaded",
+  timeout: 10000
+})
+```
+
+## Example: Login Flow
+
+```typescript
+// 1. Navigate to login page
+browser_navigate({ url: "https://app.example.com/login" })
+
+// 2. Snapshot form elements
+browser_snapshot_refs({ mode: "form" })
+// Returns: @e1 (email input), @e2 (password input), @e3 (submit button)
+
+// 3. Fill credentials
+browser_fill({ ref: "@e1", text: "user@example.com" })
+browser_fill({ ref: "@e2", text: "password123" })
+
+// 4. Submit with verification
+browser_click({
+  ref: "@e3",
+  expect: { url: "/dashboard" }
+})
+
+// 5. Verify success
+browser_assert({
+  checks: [
+    { kind: "text_present", text: "Welcome" },
+    { kind: "selector_visible", selector: ".user-menu" }
+  ]
+})
+```
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="Mac Tools" icon="apple" href="/extensions/mac-tools">
+    For native macOS app automation
+  </Card>
+  
+  <Card title="Background Shell" icon="terminal" href="/extensions/background-shell">
+    For running dev servers during browser tests
+  </Card>
+</CardGroup>

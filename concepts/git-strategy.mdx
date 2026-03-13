@@ -1,0 +1,354 @@
+---
+title: Git Strategy
+description: Branch-per-slice with squash merge — clean history, isolated work
+---
+
+## Principle
+
+**Main is always clean and working.** Each slice gets an isolated branch. The user never runs a git command — the agent handles everything.
+
+## Branch Lifecycle
+
+From `GSD-WORKFLOW.md`:
+
+<Steps>
+  <Step title="Slice starts">
+    Create branch `gsd/M001/S01` from main
+  </Step>
+  
+  <Step title="Per-task commits on the branch">
+    Atomic, descriptive, bisectable commits as work progresses
+  </Step>
+  
+  <Step title="Slice completes">
+    Squash merge to main as one clean commit
+  </Step>
+  
+  <Step title="Branch deleted">
+    Squash commit on main is the permanent record
+  </Step>
+</Steps>
+
+## What Main Looks Like
+
+One commit per slice. Individually revertable. Reads like a changelog.
+
+```
+feat(M001/S03): milestone and slice discuss commands
+feat(M001/S02): extension scaffold and command routing
+feat(M001/S01): file I/O foundation
+```
+
+From `worktree.ts`:
+
+```typescript
+export function parseSliceBranch(branchName: string): { milestoneId: string; sliceId: string } | null {
+  // Matches: gsd/M001/S01, gsd/M002/S05, etc.
+  const match = /^gsd\/([A-Z]\d+)\/([A-Z]\d+)$/.exec(branchName);
+  if (!match) return null;
+  return { milestoneId: match[1], sliceId: match[2] };
+}
+```
+
+## What the Branch Looks Like
+
+Detailed per-task commits during development:
+
+```
+gsd/M001/S01:
+  test(S01): round-trip tests passing
+  feat(S01/T03): file writer with round-trip fidelity
+  chore(S01/T03): auto-commit after task
+  feat(S01/T02): markdown parser for plan files
+  chore(S01/T02): auto-commit after task
+  feat(S01/T01): core types and interfaces
+  chore(S01/T01): auto-commit after task
+```
+
+## Commit Conventions
+
+From `GSD-WORKFLOW.md`:
+
+| When | Format | Example |
+|------|--------|----------|
+| Auto-commit (dirty state) | `chore(S01/T02): auto-commit after task` | Automatic save of work in progress |
+| After task verified | `feat(S01/T02): <what was built>` | The real work |
+| Plan/docs committed | `docs(S01): add slice plan` | Bundled with first task |
+| Slice squash to main | `type(M001/S01): <slice title>` | Type inferred from title (`feat`, `fix`, `docs`, etc.) |
+
+Commit types: `feat`, `fix`, `test`, `refactor`, `docs`, `chore`
+
+## Squash Merge Message
+
+From `GSD-WORKFLOW.md`:
+
+```
+feat(M001/S01): file I/O foundation
+
+Agent can parse, format, load, and save all GSD file types with round-trip fidelity.
+
+Tasks completed:
+- T01: core types and interfaces
+- T02: markdown parser for plan files
+- T03: file writer with round-trip fidelity
+```
+
+## Implementation Details
+
+From `worktree.ts`:
+
+```typescript
+/**
+ * Ensure the slice branch exists and is checked out.
+ * If the branch doesn't exist, create it from main.
+ * If it exists, check it out.
+ */
+export function ensureSliceBranch(
+  projectRoot: string,
+  milestoneId: string,
+  sliceId: string,
+): { branch: string; created: boolean } {
+  const branchName = `gsd/${milestoneId}/${sliceId}`;
+  const currentBranch = getCurrentBranch(projectRoot);
+
+  if (currentBranch === branchName) {
+    return { branch: branchName, created: false };
+  }
+
+  // Check if branch exists
+  const allBranches = execSync("git branch --list", { cwd: projectRoot, encoding: "utf-8" });
+  const branchExists = allBranches.split("\n").some((line) => line.trim() === branchName || line.trim() === `* ${branchName}`);
+
+  if (branchExists) {
+    execSync(`git checkout ${branchName}`, { cwd: projectRoot, stdio: "ignore" });
+    return { branch: branchName, created: false };
+  }
+
+  // Create new branch from main
+  const mainBranch = getMainBranch(projectRoot);
+  execSync(`git checkout -b ${branchName} ${mainBranch}`, { cwd: projectRoot, stdio: "ignore" });
+  return { branch: branchName, created: true };
+}
+```
+
+## Auto-Commit After Task
+
+From `worktree.ts`:
+
+```typescript
+/**
+ * Auto-commit current changes on the slice branch with a task-scoped message.
+ * If nothing to commit, returns null.
+ */
+export function autoCommitCurrentBranch(
+  projectRoot: string,
+  sliceId: string,
+  taskId: string,
+  message: string,
+): { committed: boolean; hash: string | null } {
+  // Check for changes
+  const status = execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf-8" });
+  if (!status.trim()) {
+    return { committed: false, hash: null };
+  }
+
+  // Stage all changes
+  execSync("git add -A", { cwd: projectRoot, stdio: "ignore" });
+
+  // Commit
+  const commitMsg = `feat(${sliceId}/${taskId}): ${message}`;
+  execSync(`git commit -m "${commitMsg}"`, { cwd: projectRoot, stdio: "ignore" });
+
+  // Get commit hash
+  const hash = execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf-8" }).trim();
+
+  return { committed: true, hash };
+}
+```
+
+## Squash Merge to Main
+
+From `worktree.ts`:
+
+```typescript
+/**
+ * Squash merge the slice branch to main with a single commit.
+ * Deletes the slice branch after merge.
+ */
+export function mergeSliceToMain(
+  projectRoot: string,
+  milestoneId: string,
+  sliceId: string,
+  sliceTitle: string,
+  sliceSummary: string,
+): { merged: boolean; hash: string | null } {
+  const branchName = `gsd/${milestoneId}/${sliceId}`;
+  const mainBranch = getMainBranch(projectRoot);
+
+  // Switch to main
+  switchToMain(projectRoot);
+
+  // Squash merge
+  const commitType = inferCommitType(sliceTitle);
+  const commitMsg = `${commitType}(${milestoneId}/${sliceId}): ${sliceTitle}\n\n${sliceSummary}`;
+  
+  execSync(`git merge --squash ${branchName}`, { cwd: projectRoot, stdio: "ignore" });
+  execSync(`git commit -m "${commitMsg}"`, { cwd: projectRoot, stdio: "ignore" });
+
+  // Get commit hash
+  const hash = execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf-8" }).trim();
+
+  // Delete branch
+  execSync(`git branch -D ${branchName}`, { cwd: projectRoot, stdio: "ignore" });
+
+  return { merged: true, hash };
+}
+
+function inferCommitType(sliceTitle: string): string {
+  const lower = sliceTitle.toLowerCase();
+  if (lower.includes("fix") || lower.includes("bug")) return "fix";
+  if (lower.includes("doc")) return "docs";
+  if (lower.includes("test")) return "test";
+  if (lower.includes("refactor")) return "refactor";
+  return "feat";
+}
+```
+
+## Rollback Strategies
+
+From `GSD-WORKFLOW.md`:
+
+| Problem | Fix |
+|---------|-----|
+| Bad task | `git reset --hard HEAD~1` to previous commit on the branch |
+| Bad slice | `git revert <squash commit>` on main |
+| UAT failure after merge | Fix tasks on `gsd/M001/S01-fix` branch, squash as `fix(M001/S01): <fix>` |
+
+## Git Bisect
+
+Because each slice is one atomic commit on main, `git bisect` works perfectly:
+
+```bash
+git bisect start
+git bisect bad HEAD
+git bisect good <last-known-good-commit>
+# Git tests each slice commit
+```
+
+## Worktree Support
+
+GSD includes first-class worktree support for working on multiple slices simultaneously.
+
+From `worktree-command.ts`:
+
+```typescript
+/**
+ * /worktree (or /wt) — Git worktree lifecycle management
+ * 
+ * Subcommands:
+ * - create <slice> [path]  — Create worktree for slice
+ * - switch <slice>         — Switch to existing worktree
+ * - merge <slice>          — Squash merge slice to main
+ * - remove <slice>         — Remove worktree
+ * - list                   — List all worktrees
+ */
+```
+
+<Info>
+  Worktrees let you have multiple slice branches checked out simultaneously in different directories. Useful for:
+  - Working on multiple slices in parallel
+  - Testing integration between slices
+  - Keeping auto mode running in one terminal while making manual changes in another
+</Info>
+
+## Git Service Abstraction
+
+From `git-service.ts`:
+
+```typescript
+export interface GitService {
+  getCurrentBranch(): string;
+  getMainBranch(): string;
+  ensureSliceBranch(milestoneId: string, sliceId: string): { branch: string; created: boolean };
+  autoCommit(sliceId: string, taskId: string, message: string): { committed: boolean; hash: string | null };
+  squashMergeToMain(milestoneId: string, sliceId: string, sliceTitle: string, summary: string): { merged: boolean; hash: string | null };
+  hasUncommittedChanges(): boolean;
+  getCommitHistory(branch: string, limit?: number): Commit[];
+}
+
+export class GitServiceImpl implements GitService {
+  constructor(private projectRoot: string, private prefs: GitPreferences) {}
+  
+  // Implementation delegates to worktree.ts functions
+}
+```
+
+This abstraction makes git operations testable and allows for future alternatives (e.g., Jujutsu).
+
+## Benefits of This Strategy
+
+<CardGroup cols={2}>
+  <Card title="Clean Main Branch" icon="code-branch">
+    One commit per slice. Readable history. Easy rollback.
+  </Card>
+  
+  <Card title="Isolated Work" icon="shield">
+    Each slice branch is independent. No conflicts between parallel work.
+  </Card>
+  
+  <Card title="Bisectable" icon="magnifying-glass">
+    Each slice is atomic. `git bisect` finds regressions quickly.
+  </Card>
+  
+  <Card title="Automatic" icon="robot">
+    The agent handles all git operations. No manual branching or merging.
+  </Card>
+</CardGroup>
+
+## Example Flow
+
+<Steps>
+  <Step title="Start Slice S01">
+    ```bash
+    # GSD creates gsd/M001/S01 from main
+    # Checks out the branch
+    ```
+  </Step>
+  
+  <Step title="Execute Task T01">
+    ```bash
+    # Work happens
+    # Auto-commit: chore(S01/T01): auto-commit after task
+    ```
+  </Step>
+  
+  <Step title="Execute Task T02">
+    ```bash
+    # More work
+    # Auto-commit: feat(S01/T02): markdown parser for plan files
+    ```
+  </Step>
+  
+  <Step title="Complete Slice S01">
+    ```bash
+    # Switch to main
+    # Squash merge gsd/M001/S01
+    # Commit: feat(M001/S01): file I/O foundation
+    # Delete gsd/M001/S01
+    ```
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" href="/concepts/architecture" icon="building">
+    Understand how GSD is built
+  </Card>
+  <Card title="Workflow" href="/concepts/workflow" icon="arrow-progress">
+    See the phase-based workflow
+  </Card>
+  <Card title="Context Engineering" href="/concepts/context-engineering" icon="file-lines">
+    Learn what files GSD manages
+  </Card>
+</CardGroup>

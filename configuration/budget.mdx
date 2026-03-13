@@ -1,0 +1,237 @@
+---
+title: Budget Ceiling
+description: Set spending limits to prevent cost overruns in auto mode
+---
+
+GSD tracks cost per task and can automatically pause auto mode when you hit a spending ceiling.
+
+## Setting a Budget Ceiling
+
+Configure `budget_ceiling` in your [preferences file](/configuration/preferences):
+
+```yaml
+---
+version: 1
+budget_ceiling: 50.00
+---
+```
+
+The value is in USD.
+
+## How It Works
+
+When `budget_ceiling` is set:
+
+1. GSD checks total project spend before dispatching each unit
+2. If spend ≥ ceiling, auto mode pauses with a notification
+3. You can review costs and continue manually if needed
+
+<Note>
+The budget ceiling is checked **before** starting each unit. The actual spend may slightly exceed the ceiling because GSD won't interrupt a unit mid-execution.
+</Note>
+
+## Budget Check Timing
+
+GSD checks the budget before:
+- Research phases
+- Planning phases
+- Task execution
+- Slice completion
+- UAT runs
+
+If the ceiling is hit, you see:
+
+```
+Budget ceiling $50.00 reached (spent $50.42). Pausing auto-mode — /gsd auto to continue.
+```
+
+## Cost Tracking
+
+GSD tracks costs in `.gsd/ledger.yaml`:
+
+```yaml
+units:
+  - type: research-milestone
+    id: M001
+    model: claude-sonnet-4-6
+    tokens_in: 15420
+    tokens_out: 3890
+    cost: 0.12
+    started_at: 2026-03-13T10:23:45Z
+  - type: plan-slice
+    id: M001/S01
+    model: claude-opus-4-6
+    tokens_in: 22100
+    tokens_out: 4200
+    cost: 1.45
+    started_at: 2026-03-13T10:28:30Z
+```
+
+Every unit of work is logged with:
+- Model used
+- Tokens in/out
+- Cost
+- Timestamp
+
+## Viewing Costs
+
+Use the dashboard to see cost breakdown:
+
+```bash
+/gsd status
+```
+
+Or press `Ctrl+Alt+G` to open the live overlay.
+
+The dashboard shows:
+- **Total cost** — cumulative spend for the project
+- **Per-phase cost** — research, planning, execution, completion
+- **Per-model cost** — cost breakdown by model
+- **Cost projections** — estimated spend to complete remaining slices
+
+## Cost Projections
+
+GSD projects future costs based on completed work:
+
+```
+Cost Summary:
+  Completed: $15.42 (12 units)
+  Projected: $38.50 (30 remaining units)
+  Total: $53.92
+
+Budget: $50.00 (warning: projection exceeds ceiling)
+```
+
+Projections assume:
+- Same model mix for remaining units
+- Similar complexity per slice
+
+Actual costs may vary.
+
+## Resuming After Pause
+
+When auto mode pauses due to budget ceiling:
+
+1. Review the ledger and dashboard
+2. Decide if you want to continue
+3. Optionally raise the ceiling in preferences
+4. Resume auto mode:
+
+```bash
+/gsd auto
+```
+
+GSD immediately checks the budget again. If you raised the ceiling, auto mode continues. Otherwise, it pauses again.
+
+## Per-Phase Budget Control
+
+You can use cheaper models for specific phases to stay under budget:
+
+```yaml
+models:
+  research: openrouter/deepseek/deepseek-r1  # $0.28/$0.42 per 1M
+  planning:
+    model: claude-opus-4-6                   # $5/$25 per 1M
+    fallbacks:
+      - openrouter/z-ai/glm-5                # $1/$3.20 per 1M
+  execution: openrouter/minimax/minimax-m2.5 # $0.30/$1.20 per 1M
+  completion: openrouter/minimax/minimax-m2.5
+budget_ceiling: 20.00
+```
+
+This gives you:
+- High quality for planning (Opus)
+- Low cost for execution and completion (cheap models)
+- Budget protection
+
+## Global vs Project Budget
+
+Budget ceilings are **per-project**:
+- Each project has its own `.gsd/ledger.yaml`
+- Budget ceiling applies only to that project's spend
+
+<Tip>
+Set a global ceiling in `~/.gsd/preferences.md` and override it per-project in `.gsd/preferences.md` for higher-priority work.
+</Tip>
+
+## Example: Tiered Budgets
+
+**Global preferences** (`~/.gsd/preferences.md`):
+
+```yaml
+---
+version: 1
+budget_ceiling: 10.00  # Conservative default
+---
+```
+
+**Project preferences** (`.gsd/preferences.md`):
+
+```yaml
+---
+version: 1
+budget_ceiling: 100.00  # Higher ceiling for this project
+---
+```
+
+GSD uses the project value (100.00).
+
+## Disabling Budget Ceiling
+
+To disable budget checks, remove `budget_ceiling` from your preferences or set it to a very high value:
+
+```yaml
+---
+version: 1
+budget_ceiling: 999999.99
+---
+```
+
+<Warning>
+Without a budget ceiling, auto mode can spend indefinitely. Monitor costs manually via `/gsd status`.
+</Warning>
+
+## Cost Attribution
+
+Costs are attributed to:
+- **Unit type** — research, planning, execution, completion
+- **Slice** — which slice the work belongs to
+- **Model** — which model was used
+
+This lets you see:
+- Which phases are most expensive
+- Which slices cost the most
+- Which models you're spending on
+
+## Ledger Format
+
+The ledger is human-readable YAML:
+
+```yaml
+version: 1
+units:
+  - type: execute-task
+    id: M001/S01/T02
+    model: claude-sonnet-4-6
+    tokens_in: 45000
+    tokens_out: 8900
+    cost: 0.89
+    started_at: 2026-03-13T11:15:22Z
+    completed_at: 2026-03-13T11:23:10Z
+```
+
+You can inspect it directly or use the dashboard.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Model Selection" icon="brain" href="/configuration/models">
+    Use cheaper models to reduce costs
+  </Card>
+  <Card title="Timeouts" icon="clock" href="/configuration/timeouts">
+    Prevent runaway execution with timeouts
+  </Card>
+  <Card title="Preferences" icon="sliders" href="/configuration/preferences">
+    Learn about all preference options
+  </Card>
+</CardGroup>

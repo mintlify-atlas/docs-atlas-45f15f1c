@@ -1,0 +1,399 @@
+---
+title: "Worker Agent"
+description: "General-purpose implementation agent with full capabilities"
+icon: "wrench"
+---
+
+## Overview
+
+The Worker agent is a general-purpose subagent with full tool access that operates in an isolated context window to handle delegated tasks.
+
+Worker is the default agent for implementation work — it can read, write, edit, run tests, and execute commands without restrictions.
+
+## Purpose
+
+<CardGroup cols={2}>
+  <Card title="Isolated Context" icon="window-restore">
+    Runs in clean context window, preventing main conversation pollution
+  </Card>
+  <Card title="Full Capabilities" icon="toolbox">
+    Access to all tools: read, write, edit, bash, grep, glob
+  </Card>
+  <Card title="Autonomous Execution" icon="robot">
+    Works independently to complete assigned task
+  </Card>
+  <Card title="Structured Output" icon="list-check">
+    Returns summary of work done and files changed
+  </Card>
+</CardGroup>
+
+## When to Use Worker
+
+Use Worker when you need to:
+- Implement a feature or fix
+- Refactor code across multiple files
+- Write tests or documentation
+- Execute a well-defined task
+
+**Don't use Worker for:**
+- Codebase exploration (use Scout)
+- Web research (use Researcher)
+- Orchestration or planning (use main agent)
+- Spawning subagents (Worker should not orchestrate)
+
+## Agent Definition
+
+```yaml
+---
+name: worker
+description: General-purpose subagent with full capabilities, isolated context
+---
+```
+
+<ParamField path="name" type="string">
+  Agent identifier: `worker`
+</ParamField>
+
+<ParamField path="description" type="string">
+  Short description of agent purpose
+</ParamField>
+
+<ParamField path="tools" type="implicit">
+  Worker has access to all standard tools (not explicitly listed)
+</ParamField>
+
+## Capabilities
+
+### File Operations
+
+<ResponseField name="Read" type="tool">
+  Read files with offset/limit support
+</ResponseField>
+
+<ResponseField name="Write" type="tool">
+  Create new files with full content
+</ResponseField>
+
+<ResponseField name="Edit" type="tool">
+  Modify existing files with string replacement
+</ResponseField>
+
+<ResponseField name="Glob" type="tool">
+  Find files by pattern
+</ResponseField>
+
+<ResponseField name="Grep" type="tool">
+  Search file contents with regex
+</ResponseField>
+
+### Execution
+
+<ResponseField name="Bash" type="tool">
+  Run shell commands (tests, builds, git operations)
+</ResponseField>
+
+### Restrictions
+
+<Warning>
+  Worker should **not** spawn subagents or act as orchestrator unless explicitly instructed.
+</Warning>
+
+Worker should not call:
+- `gsd_scout` or `subagent`
+- `launch_parallel_view`
+- `gsd_execute_parallel`
+
+If a task requires orchestration, Worker should report back to the parent agent instead of attempting to orchestrate itself.
+
+## Output Format
+
+Worker returns a structured completion report:
+
+### Completed
+
+```markdown
+## Completed
+
+Implemented POST /checkout endpoint with:
+- Input validation using Zod schema
+- Stripe session creation
+- Session ID storage in database
+- Success/cancel URL configuration
+```
+
+<ParamField path="Completed" type="section" required>
+  What was done, in bullet points or prose
+</ParamField>
+
+### Files Changed
+
+```markdown
+## Files Changed
+
+- `src/routes/checkout.ts` — Added POST handler and validation
+- `src/services/stripe.ts` — Implemented createCheckoutSession()
+- `src/models/checkout-session.ts` — New model for session tracking
+- `tests/checkout.test.ts` — Integration tests with mocked Stripe
+```
+
+<ParamField path="Files Changed" type="section" required>
+  List of modified/created files with brief description of changes
+</ParamField>
+
+### Notes
+
+```markdown
+## Notes
+
+Added Zod for validation — not in original task but needed for type safety.
+
+Skipped cancel URL handler — deferred to next task per plan.
+
+Tests use Stripe test mode keys from .env.test.
+```
+
+<ParamField path="Notes" type="section">
+  Anything the parent agent should know: deviations, blockers, suggestions
+</ParamField>
+
+### Handoff Information
+
+When handing off to another agent (e.g. reviewer):
+
+```markdown
+## Handoff to Reviewer
+
+**Exact file paths changed:**
+- src/routes/checkout.ts
+- src/services/stripe.ts
+- src/models/checkout-session.ts
+
+**Key functions/types touched:**
+- POST /checkout route handler
+- createCheckoutSession() service function
+- CheckoutSession model
+```
+
+<ParamField path="Handoff" type="section">
+  Information needed by next agent in the workflow
+</ParamField>
+
+## Example Usage
+
+### Task Delegation
+
+```typescript
+// Main agent delegates to worker
+const workerReport = await launchAgent('worker', {
+  task: `Implement POST /checkout endpoint that creates Stripe session.
+  
+  Requirements:
+  - Validate userId and planId
+  - Call createCheckoutSession() service
+  - Return session URL
+  - Handle errors with 500 response
+  
+  Files to modify:
+  - src/routes/checkout.ts
+  - src/services/stripe.ts`
+});
+
+// Worker returns completion report
+// Main agent continues with next task
+```
+
+### Worker Report
+
+```markdown
+## Completed
+
+Implemented POST /checkout endpoint with:
+
+1. **Input validation**: Uses Zod schema to validate `planId` in request body. 
+   Returns 400 if validation fails.
+
+2. **Authentication**: Uses existing `authenticate` middleware to get `userId` 
+   from request.
+
+3. **Session creation**: Calls `createCheckoutSession()` with userId and 
+   planId. Service returns Stripe session object.
+
+4. **Response**: Returns JSON with `{ url: session.url }` on success.
+
+5. **Error handling**: Catches errors, logs with context, returns 500 with 
+   generic error message (doesn't leak internal details).
+
+## Files Changed
+
+- `src/routes/checkout.ts` — Added POST /checkout route with validation, 
+  service call, and error handling. 45 lines.
+
+- `src/services/stripe.ts` — Implemented `createCheckoutSession()` function. 
+  Creates Stripe session, stores session ID in DB, returns session object. 
+  30 lines.
+
+- `src/models/checkout-session.ts` — New model file. Defines TypeScript 
+  interface and database schema for checkout session tracking. 25 lines.
+
+- `tests/checkout.test.ts` — Added integration test. Mocks Stripe, tests 
+  happy path and error cases. 60 lines.
+
+## Notes
+
+Added Zod for input validation (import at top of checkout.ts). This wasn't 
+in the original task spec but is necessary for type-safe validation.
+
+Stored session IDs in database for webhook correlation (per S03 plan). 
+Required creating new model file.
+
+Tests use `jest.mock('stripe')` to avoid hitting real Stripe API. Test keys 
+loaded from `.env.test`.
+
+Ready for verification: `npm test -- checkout.test.ts`
+```
+
+## Best Practices
+
+<Tip>
+  Worker should complete the full task, not just part of it. If the task is too large, the parent agent should break it down first.
+</Tip>
+
+### Do
+
+- **Work autonomously** — make reasonable decisions
+- **Complete the full task** — don't leave partial work
+- **Test your changes** — run tests before reporting completion
+- **Document deviations** — note anything that differs from the plan
+- **Be specific** — list exact files changed and functions modified
+
+### Don't
+
+- **Ask for permission** — you're empowered to make implementation choices
+- **Leave TODOs** — finish the work or note it as incomplete
+- **Spawn subagents** — unless explicitly instructed to orchestrate
+- **Return raw files** — return a summary, not file contents
+
+## Decision Making
+
+Worker is empowered to make implementation decisions:
+
+### Allowed Decisions
+
+<ResponseField name="Code structure" type="decision">
+  Function organization, file splitting, import ordering
+</ResponseField>
+
+<ResponseField name="Implementation details" type="decision">
+  Algorithm choice, data structure selection, optimization approach
+</ResponseField>
+
+<ResponseField name="Minor dependencies" type="decision">
+  Adding utility libraries (lodash, date-fns) without major architectural impact
+</ResponseField>
+
+<ResponseField name="Test approach" type="decision">
+  Test structure, mocking strategy, assertion style
+</ResponseField>
+
+### Escalate to Parent
+
+<Warning>
+  Escalate decisions that:
+  - Change public APIs or contracts
+  - Require new major dependencies
+  - Contradict explicit requirements
+  - Exceed estimated scope significantly
+</Warning>
+
+## Integration with GSD
+
+GSD uses Worker as the primary execution agent:
+
+### Task Execution
+
+```markdown
+**Phase:** Executing
+**Task:** T03: Implement webhook handler
+**Agent:** Worker
+```
+
+Worker implements the task and returns completion report.
+
+### Subtask Delegation
+
+For complex tasks, main agent may delegate parts to Worker:
+
+```markdown
+**Task T05:** Implement retry logic (complex, 2h estimate)
+
+**Subtask 1 → Worker:** Implement exponential backoff utility
+**Subtask 2 → Worker:** Add retry wrapper to webhook processor
+**Subtask 3 → Worker:** Add retry tests
+```
+
+Each Worker instance runs in isolation.
+
+## Error Handling
+
+Worker should handle errors gracefully:
+
+### Recoverable Errors
+
+```markdown
+## Completed
+
+Implemented checkout endpoint with one issue:
+
+## Notes
+
+Zod validation schema failed initially — fixed by updating type definitions.
+All tests passing now.
+```
+
+### Blocking Errors
+
+```markdown
+## Completed
+
+Partially implemented — blocked by missing Stripe SDK.
+
+## Notes
+
+Cannot proceed: Stripe SDK not installed and package.json is locked. 
+Need parent agent to run `npm install stripe` first.
+```
+
+## Performance Characteristics
+
+<ResponseField name="Context isolation" type="metric">
+  Each Worker instance starts with clean context (200k tokens)
+</ResponseField>
+
+<ResponseField name="Execution time" type="metric">
+  Varies by task complexity. Typical task: 2-10 minutes.
+</ResponseField>
+
+<ResponseField name="Cost" type="metric">
+  Standard model pricing. Worker context is discarded after completion.
+</ResponseField>
+
+## Comparison with Other Agents
+
+| Aspect | Worker | Scout | Researcher |
+|--------|--------|-------|------------|
+| **Purpose** | Implementation | Exploration | Research |
+| **Tools** | All tools | Read/Grep/Find | Web Search |
+| **Output** | Modified code | File report | Research report |
+| **Context** | Task-specific | Code sections | Web results |
+| **Duration** | 2-10 min | 1-3 min | 2-5 min |
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Scout Agent" icon="magnifying-glass" href="/api/agents/scout">
+    Codebase reconnaissance for context gathering
+  </Card>
+  <Card title="Researcher Agent" icon="globe" href="/api/agents/researcher">
+    Web research for external information
+  </Card>
+</CardGroup>

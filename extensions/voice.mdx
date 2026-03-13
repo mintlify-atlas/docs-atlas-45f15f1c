@@ -1,0 +1,258 @@
+---
+title: Voice Input
+description: Control GSD 2 with voice transcription (macOS only)
+---
+
+The Voice extension enables hands-free interaction with GSD 2 via macOS Speech Recognition. Speak your prompts and see them transcribed in real-time.
+
+<Warning>
+  **macOS only.** This extension requires macOS 10.15+ and does not work on Linux or Windows.
+</Warning>
+
+## Overview
+
+Voice input provides:
+
+- **Real-time transcription**: See your speech as text immediately
+- **Continuous recognition**: Accumulates text across pauses
+- **Hands-free editing**: Speak prompts without typing
+- **Visual feedback**: Flashing indicator shows active transcription
+- **Native integration**: Uses macOS Speech framework (no API keys)
+
+## Activation
+
+There are two ways to activate voice mode:
+
+### Keyboard Shortcut
+
+```
+Ctrl+Alt+V
+```
+
+### Slash Command
+
+```bash
+/voice
+```
+
+## Usage
+
+1. **Activate**: Press `Ctrl+Alt+V` or type `/voice`
+2. **Speak**: Say your prompt (e.g., "Add error handling to the login function")
+3. **Watch**: Text appears in the editor as you speak
+4. **Finish**: Press `Enter` to submit or `Esc` to cancel
+
+## Visual Feedback
+
+While voice mode is active:
+
+- **Footer shows**: `● transcribing` with flashing red dot
+- **Editor updates**: Live as you speak
+- **Accumulation**: Text persists across natural pauses
+
+## Requirements
+
+### Swift Compilation
+
+First use compiles a Swift CLI (requires Xcode Command Line Tools):
+
+```bash
+# Install Xcode CLI tools if needed
+xcode-select --install
+```
+
+Compilation happens automatically on first activation.
+
+### Permissions
+
+Grant microphone access when prompted:
+
+1. Voice mode triggers system permission dialog
+2. Allow "Terminal" (or your terminal app) to access microphone
+3. Permission persists across sessions
+
+## Transcription Behavior
+
+### Continuous Recognition
+
+Voice mode accumulates text across natural pauses:
+
+```
+Speak: "Add a function..."
+[pause]
+Speak: "...that validates email addresses"
+
+Result: "Add a function that validates email addresses"
+```
+
+### Partial vs Final Updates
+
+The Swift recognizer sends two types of updates:
+
+- **PARTIAL**: Tentative transcription (updates frequently)
+- **FINAL**: Confirmed transcription (after pause)
+
+Both contain the full accumulated text, so you see the complete prompt build up.
+
+## Exiting Voice Mode
+
+### Submit Transcription
+
+Press `Enter` to submit the accumulated text as your prompt.
+
+### Cancel
+
+Press `Esc` to discard and exit voice mode.
+
+### Toggle Off
+
+`Ctrl+Alt+V` again to stop transcription and clear.
+
+## Example Workflow
+
+```bash
+# 1. Activate voice mode
+Ctrl+Alt+V
+
+# 2. Speak your prompt
+"Find all React components that use useEffect without cleanup functions"
+
+# 3. Editor shows (in real-time):
+# Find all React components that use useEffect without cleanup functions
+
+# 4. Submit
+Enter
+
+# Agent processes: Runs glob/grep to find components
+```
+
+## Voice Quality Tips
+
+### 1. Speak Clearly
+
+Enunciate technical terms:
+
+- **Good**: "use ee-fect" (useEffect)
+- **Poor**: "yooz-fekt"
+
+### 2. Pause for Punctuation
+
+Natural pauses help segment phrases:
+
+- "Add error handling... to the login function"
+
+### 3. Use Code Terms Phonetically
+
+Say variable names as words:
+
+- "user auth config" → `userAuthConfig`
+- "is loading" → `isLoading`
+
+### 4. Spell Complex Identifiers
+
+For precise naming:
+
+- "Create a function called... spell: A W S... config"
+
+## Troubleshooting
+
+### Permission Denied
+
+```
+Voice: Microphone access denied
+```
+
+**Solution:**
+
+1. Open System Settings > Privacy & Security > Microphone
+2. Enable your terminal app (Terminal.app, iTerm.app, etc.)
+3. Restart terminal
+4. Try `/voice` again
+
+### Compilation Failed
+
+```
+Voice: failed to compile speech recognizer (need Xcode CLI tools)
+```
+
+**Solution:**
+
+```bash
+# Install Xcode Command Line Tools
+xcode-select --install
+
+# Verify installation
+swiftc --version
+```
+
+### No Transcription Appearing
+
+**Possible causes:**
+
+1. **Microphone muted**: Check system mute status
+2. **Wrong input device**: System may be using wrong mic
+3. **Background noise**: Speech recognition fails with loud background
+
+**Solution:**
+
+1. Check System Settings > Sound > Input
+2. Verify correct microphone is selected
+3. Test input level (should show bars when speaking)
+4. Reduce background noise
+
+### Transcription Inaccurate
+
+**Solutions:**
+
+1. Speak more slowly and clearly
+2. Move closer to microphone
+3. Use punctuation pauses
+4. Spell complex technical terms
+5. Edit text manually after transcription
+
+## Implementation Details
+
+### Swift Recognizer
+
+The voice extension uses a Swift CLI that:
+
+- Starts `SFSpeechRecognizer` in continuous mode
+- Listens to microphone via `AVAudioEngine`
+- Accumulates transcription across recognition resets
+- Sends updates via stdout (PARTIAL/FINAL)
+
+### Auto-Accumulation
+
+The recognizer handles pause-induced resets automatically:
+
+```swift
+// When recognition times out (user paused):
+1. Append current result to accumulated text
+2. Restart recognition task
+3. Continue listening
+
+// Both PARTIAL and FINAL contain full accumulated text
+```
+
+No manual stitching needed in TypeScript layer.
+
+## Accessibility
+
+Voice input is useful for:
+
+- **Hands-free operation**: Work while taking notes or reading
+- **Motor impairments**: Reduce typing strain
+- **Multitasking**: Speak prompts while reviewing code
+- **Dictation preference**: Some users prefer speaking to typing
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="Mac Tools" icon="apple" href="/extensions/mac-tools">
+    For controlling macOS apps (also macOS-only)
+  </Card>
+  
+  <Card title="Background Shell" icon="terminal" href="/extensions/background-shell">
+    For running voice-initiated background processes
+  </Card>
+</CardGroup>

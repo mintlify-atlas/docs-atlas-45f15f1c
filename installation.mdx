@@ -1,0 +1,332 @@
+---
+title: Installation
+description: Install GSD 2, configure your LLM provider, and complete first-run setup
+---
+
+# Installation
+
+GSD 2 is a global npm package that runs as a standalone CLI. This guide walks you through installation, provider setup, and first-run configuration.
+
+## Requirements
+
+Before installing GSD, make sure you have:
+
+- **Node.js** ≥ 20.6.0 (22+ recommended)
+- **npm** (comes with Node.js)
+- **Git** (initialized automatically if missing)
+- **An LLM provider account** — see [Choose Your Provider](#choose-your-provider) below
+
+<Note>
+  Optional: API keys for web research (Brave Search, Tavily), library docs (Context7), or page extraction (Jina)
+</Note>
+
+## Install GSD
+
+Install GSD globally via npm:
+
+```bash
+npm install -g gsd-pi
+```
+
+Verify installation:
+
+```bash
+gsd --version
+```
+
+You should see the version number printed (e.g., `2.7.0`).
+
+<Info>
+  The package name is `gsd-pi` (not just `gsd`) because GSD is built on the Pi SDK. The binary is still called `gsd`.
+</Info>
+
+## Choose Your Provider
+
+GSD supports **20+ LLM providers**. You'll need credentials from at least one provider before GSD can run.
+
+### Option 1: OAuth (Recommended)
+
+If you have one of these subscriptions, you can authenticate via OAuth with no API key needed:
+
+<CardGroup cols={2}>
+  <Card title="Claude Max" icon="anthropic">
+    Anthropic's subscription plan with higher rate limits
+  </Card>
+  <Card title="ChatGPT Plus/Pro" icon="openai">
+    OpenAI Codex OAuth flow for Plus and Pro subscribers
+  </Card>
+  <Card title="GitHub Copilot" icon="github">
+    Use your existing Copilot subscription
+  </Card>
+  <Card title="Google Gemini CLI" icon="google">
+    Google's CLI OAuth for Gemini models
+  </Card>
+</CardGroup>
+
+### Option 2: API Keys
+
+If you don't have an OAuth-enabled subscription, you can use an API key from:
+
+- **Anthropic** — [console.anthropic.com](https://console.anthropic.com)
+- **OpenAI** — [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+- **OpenRouter** — [openrouter.ai](https://openrouter.ai) (access to hundreds of models with one key)
+- **Google** — [ai.google.dev](https://ai.google.dev)
+- **Groq** — [console.groq.com](https://console.groq.com)
+- **xAI** — [x.ai](https://x.ai)
+- **Mistral** — [console.mistral.ai](https://console.mistral.ai)
+
+<Warning>
+  Keep your API keys secure. Never commit them to version control. GSD stores them in `~/.gsd/auth.json` with restricted file permissions.
+</Warning>
+
+## First Run Setup
+
+The first time you run GSD, you'll see a branded setup wizard that guides you through configuration.
+
+### Launch GSD
+
+Open a terminal in any directory and run:
+
+```bash
+gsd
+```
+
+### Setup Wizard Flow
+
+GSD will display the ASCII logo and start the onboarding flow:
+
+<Steps>
+  <Step title="Welcome">
+    You'll see the GSD logo and a welcome message:
+    
+    ```
+       ██████╗ ███████╗██████╗ 
+      ██╔════╝ ██╔════╝██╔══██╗
+      ██║  ███╗███████╗██║  ██║
+      ██║   ██║╚════██║██║  ██║
+      ╚██████╔╝███████║██████╔╝
+       ╚═════╝ ╚══════╝╚═════╝ 
+    
+    Welcome to GSD — let's get you set up
+    ```
+  </Step>
+  
+  <Step title="Choose LLM Provider">
+    Select your LLM provider from the list:
+    
+    - Anthropic — Claude (OAuth login) *recommended*
+    - Anthropic — Claude (API key)
+    - OpenAI (API key)
+    - GitHub Copilot (OAuth login)
+    - ChatGPT Plus/Pro — Codex (OAuth login)
+    - Google Gemini CLI (OAuth login)
+    - Antigravity — Gemini 3, Claude, GPT-OSS (OAuth login)
+    - Other provider (API key)
+    - Skip for now
+    
+    <Tip>
+      If you're unsure, choose "Anthropic — Claude (OAuth login)" if you have Claude Max, or "OpenRouter (API key)" for access to hundreds of models.
+    </Tip>
+  </Step>
+  
+  <Step title="Authenticate">
+    **For OAuth providers:**
+    
+    1. GSD opens your browser to the provider's OAuth page
+    2. Log in and authorize GSD
+    3. You'll see a success message in the terminal
+    
+    **For API key providers:**
+    
+    1. Paste your API key when prompted
+    2. GSD validates the key format (loose check)
+    3. The key is saved to `~/.gsd/auth.json`
+    
+    <Note>
+      API keys are stored locally and never sent anywhere except to your chosen LLM provider.
+    </Note>
+  </Step>
+  
+  <Step title="Optional Tool Keys">
+    GSD asks if you want to configure optional tool API keys:
+    
+    - **Brave Search** — web search + search_and_read tools
+    - **Brave Answers** — AI-summarised search answers
+    - **Context7** — up-to-date library docs
+    - **Jina AI** — clean web page extraction
+    - **Slack Bot** — remote questions in auto-mode
+    - **Discord Bot** — remote questions in auto-mode
+    
+    Press **Enter** to skip any key you don't have. You can add these later with `gsd config`.
+  </Step>
+  
+  <Step title="Setup Complete">
+    You'll see a summary of what was configured:
+    
+    ```
+    ✓ LLM provider: anthropic
+    ✓ 2 tool keys saved
+    
+    Setup complete
+    
+    Launching GSD...
+    ```
+    
+    The interactive TUI launches and you're ready to go!
+  </Step>
+</Steps>
+
+### Re-run Setup Anytime
+
+You can re-run the setup wizard at any time:
+
+```bash
+gsd config
+```
+
+This is useful if you want to:
+
+- Add a new LLM provider
+- Switch providers
+- Add tool API keys
+- Update existing credentials
+
+## Verify Installation
+
+After completing setup, verify GSD is working:
+
+<Steps>
+  <Step title="Check the default model">
+    GSD automatically selects a default model after login. You can check which model is active:
+    
+    ```bash
+    gsd
+    /model
+    ```
+    
+    This opens the model selection menu. Press `Esc` to close without changing.
+  </Step>
+  
+  <Step title="Check available commands">
+    Inside the GSD session, you can list all available commands:
+    
+    ```bash
+    /help
+    ```
+    
+    Or press `Ctrl+P` to see available actions.
+  </Step>
+  
+  <Step title="Test a simple prompt">
+    Try a simple interaction to make sure everything works:
+    
+    ```bash
+    What version of GSD am I running?
+    ```
+    
+    GSD should respond with version information.
+  </Step>
+</Steps>
+
+## Configuration Files
+
+GSD stores configuration in your home directory:
+
+```
+~/.gsd/
+  auth.json          # LLM provider credentials (OAuth tokens, API keys)
+  preferences.md     # Global preferences (models, timeouts, budget)
+  agent/             # Bundled extensions, agents, and resources
+  sessions/          # Session history (per-directory)
+```
+
+<Warning>
+  Never commit `~/.gsd/auth.json` to version control. This file contains your API keys and OAuth tokens.
+</Warning>
+
+## Per-Project Configuration
+
+Each project using GSD gets a `.gsd/` directory at the project root:
+
+```
+project-root/
+  .gsd/
+    state.md              # Current state dashboard
+    decisions.md          # Architectural decisions
+    preferences.md        # Project-specific preferences (optional)
+    milestones/           # Milestone and slice artifacts
+```
+
+<Info>
+  The `.gsd/` directory is automatically added to `.gitignore` by GSD. You can commit it if you want to share planning artifacts with your team.
+</Info>
+
+## Migrating from v1
+
+If you have projects with `.planning` directories from the original Get Shit Done, you can migrate them to GSD 2's `.gsd` format:
+
+```bash
+cd your-old-project
+gsd
+/gsd migrate
+```
+
+The migration tool:
+
+- Parses your old `PROJECT.md`, `ROADMAP.md`, `REQUIREMENTS.md`, phase directories, plans, summaries, and research
+- Maps phases → slices, plans → tasks, milestones → milestones
+- Preserves completion state (`[x]` phases stay done, summaries carry over)
+- Consolidates research files into the new structure
+- Shows a preview before writing anything
+- Optionally runs an agent-driven review of the output for quality assurance
+
+## Troubleshooting
+
+### "No LLM provider configured"
+
+If you skipped provider setup during first run, run:
+
+```bash
+gsd config
+```
+
+And complete the LLM provider authentication step.
+
+### "Command not found: gsd"
+
+Make sure npm's global bin directory is in your PATH:
+
+```bash
+npm config get prefix
+```
+
+The output should be something like `/usr/local` or `~/.npm-global`. Make sure `<prefix>/bin` is in your `$PATH`.
+
+### "Permission denied" during installation
+
+If `npm install -g` fails with permission errors, you can:
+
+1. **Use a Node version manager** (recommended) — [nvm](https://github.com/nvm-sh/nvm) or [fnm](https://github.com/Schniz/fnm)
+2. **Configure npm to use a different directory** — [npm docs](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally)
+
+### "Node version too old"
+
+GSD requires Node.js ≥ 20.6.0. Update Node:
+
+```bash
+# Using nvm
+nvm install 22
+nvm use 22
+
+# Using fnm
+fnm install 22
+fnm use 22
+```
+
+## Next Steps
+
+Now that GSD is installed and configured, let's run your first command.
+
+<Card title="Quickstart" icon="rocket" href="/quickstart">
+  Get from zero to running your first /gsd command with real terminal output
+</Card>

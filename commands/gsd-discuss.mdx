@@ -1,0 +1,431 @@
+---
+title: /gsd discuss
+description: Interactive planning and milestone refinement
+---
+
+The `/gsd discuss` command opens an interactive planning interface for refining requirements, milestones, and the project queue.
+
+## Syntax
+
+```bash
+/gsd discuss
+```
+
+## Purpose
+
+Use `/gsd discuss` to:
+
+- Add new milestones to the queue
+- Refine existing milestone goals
+- Reorder milestones by priority
+- Discuss requirements and constraints
+- Update project context before planning
+
+## Workflow
+
+The discuss command guides you through an interactive conversation to gather project context and define work scope.
+
+### Initial Project Setup
+
+When starting a new project (no `.gsd/` directory exists):
+
+1. **Discusses project goals** - What are you building?
+2. **Gathers requirements** - User needs, constraints, technical requirements
+3. **Defines first milestone** - Breaking the project into deliverable chunks
+4. **Writes planning artifacts** - PROJECT.md, REQUIREMENTS.md, QUEUE.md
+
+### Adding Milestones
+
+When the project already has active work:
+
+1. **Reviews current state** - Shows active milestone, completed work
+2. **Discusses new scope** - What additional functionality is needed?
+3. **Creates milestone stub** - Writes CONTEXT.md for later planning
+4. **Updates queue** - Adds to QUEUE.md with priority
+
+## State Files Written
+
+### First Invocation
+
+Creates initial project structure:
+
+```
+.gsd/
+  PROJECT.md           # Project overview and goals
+  REQUIREMENTS.md      # User requirements registry
+  DECISIONS.md         # Architectural decisions
+  QUEUE.md            # Milestone queue
+  milestones/
+    M001/
+      M001-CONTEXT.md  # First milestone context
+```
+
+### Adding Milestones
+
+Appends to existing structure:
+
+```
+.gsd/
+  QUEUE.md            # Updated with new milestone
+  milestones/
+    M002/
+      M002-CONTEXT.md  # New milestone context
+```
+
+## Smart Entry Flow
+
+The `showSmartEntry` function in `guided-flow.ts:246` orchestrates the discussion:
+
+```typescript
+export async function showSmartEntry(
+  ctx: ExtensionCommandContext,
+  pi: ExtensionAPI,
+  base: string,
+  options?: { step?: boolean },
+): Promise<void> {
+  const state = await deriveState(base);
+  
+  if (state.registry.length === 0) {
+    // New project - full discuss flow
+    return showDiscuss(ctx, pi, base);
+  }
+  
+  if (state.activeMilestone && state.phase !== "complete") {
+    // Has active work - offer to continue or add milestone
+    const choice = await showNextAction(ctx, {
+      title: "GSD - Ready to continue?",
+      // ...
+    });
+    
+    if (choice === "add_milestone") {
+      return showDiscuss(ctx, pi, base);
+    }
+  }
+  
+  // Default: start auto mode
+  await startAuto(ctx, pi, base, false, options);
+}
+```
+
+## Example: New Project
+
+```bash
+$ /gsd discuss
+
+# Agent prompt appears:
+# "Let's plan your project. What are you building?"
+
+User: I want to build a task management API with authentication
+
+# Agent discusses:
+# - Core features (tasks, users, auth)
+# - Technical stack (Node.js, PostgreSQL)
+# - Deployment requirements (Docker, cloud hosting)
+# - First milestone scope
+
+Agent: I'll create milestone M001: "Build authentication system" as the first deliverable.
+
+# Writes:
+# - .gsd/PROJECT.md
+# - .gsd/REQUIREMENTS.md
+# - .gsd/QUEUE.md
+# - .gsd/milestones/M001/M001-CONTEXT.md
+
+Agent: Ready to start? Run /gsd auto to begin planning and execution.
+```
+
+## Example: Adding Milestone
+
+```bash
+$ /gsd discuss
+
+# Agent shows current state:
+# "M001: Authentication system (active)"
+# "Let's discuss what you'd like to add."
+
+User: Add API endpoints for managing tasks
+
+# Agent discusses:
+# - CRUD operations needed
+# - Data model (tasks table)
+# - Relationship to existing auth system
+# - Priority relative to M001
+
+Agent: I'll create M002: "Implement task management API" and add it to the queue.
+
+# Writes:
+# - .gsd/milestones/M002/M002-CONTEXT.md
+# - Updates .gsd/QUEUE.md
+
+Agent: M002 is queued. Finish M001 first, then auto-mode will pick up M002.
+```
+
+## Queue Management
+
+The discuss flow updates `QUEUE.md`:
+
+```markdown
+# Milestone Queue
+
+Priority-ordered list of planned milestones.
+
+## Active
+
+- **M001:** Build authentication system (active)
+
+## Queued
+
+- **M002:** Implement task management API
+- **M003:** Add real-time notifications
+
+## Deferred
+
+- **M004:** Admin dashboard (low priority)
+
+## Notes
+
+M002 depends on M001 completing (needs auth middleware).
+```
+
+## Requirements Registry
+
+The discuss flow populates `REQUIREMENTS.md`:
+
+```markdown
+# Requirements
+
+### R001: User Authentication
+
+- Status: Active
+- Priority: P0 (critical)
+- Primary owning slice: M001/S01
+- Notes: OAuth2 with JWT tokens
+
+### R002: Task CRUD
+
+- Status: Planned
+- Priority: P1 (high)
+- Primary owning slice: M002/S01
+- Notes: RESTful API with validation
+
+### R003: Real-time Updates
+
+- Status: Deferred
+- Priority: P2 (nice-to-have)
+- Primary owning slice: None yet
+- Notes: WebSocket or SSE, depends on load testing results
+```
+
+See [Requirements](/api/project-files) for the full specification.
+
+## PROJECT.md Structure
+
+The discuss flow creates or updates `PROJECT.md`:
+
+```markdown
+# Project: Task Management API
+
+## Overview
+
+RESTful API for personal task management with user authentication.
+
+## Goals
+
+- Secure user authentication (OAuth2)
+- CRUD operations for tasks
+- RESTful design following best practices
+- Dockerized deployment
+
+## Tech Stack
+
+- Runtime: Node.js 20
+- Framework: Express
+- Database: PostgreSQL 15
+- Auth: Passport.js (OAuth2)
+- Testing: Jest
+
+## Constraints
+
+- Must support 1000+ concurrent users
+- API response time < 200ms (p95)
+- Deploy to AWS (ECS or Lambda)
+
+## Success Criteria
+
+- [ ] Users can register and log in
+- [ ] Authenticated users can manage tasks
+- [ ] API is documented (OpenAPI)
+- [ ] CI/CD pipeline deploys to staging
+```
+
+## Integration with Auto Mode
+
+After discuss completes, auto mode uses the artifacts:
+
+1. **Reads CONTEXT.md** for the active milestone
+2. **Researches** technical approach (if needed)
+3. **Plans ROADMAP.md** with slices
+4. **Executes** slice by slice
+
+See [Auto Mode](/commands/gsd-auto) for execution details.
+
+## Best Practices
+
+<Tip>
+**Be specific about constraints.** Mention technical requirements (versions, deployment targets) during the discuss phase so they're captured in PROJECT.md and used during planning.
+</Tip>
+
+<Info>
+**Front-load multi-milestone planning.** If you know you'll need M001, M002, M003 upfront, discuss them all in one session. The agent will create CONTEXT.md stubs for each, then auto mode will plan and execute them in order.
+</Info>
+
+<Warning>
+**Don't skip the discuss flow.** Starting auto mode without PROJECT.md and REQUIREMENTS.md means the agent has no project context. Always run `/gsd discuss` first for new projects.
+</Warning>
+
+## Example: Multi-Milestone Planning
+
+```bash
+$ /gsd discuss
+
+User: I'm building a SaaS app with auth, billing, and dashboards. Plan all three milestones upfront.
+
+# Agent discusses each milestone in one session:
+# - M001: User authentication
+# - M002: Stripe billing integration  
+# - M003: Analytics dashboard
+
+# Writes:
+# - .gsd/PROJECT.md (full project overview)
+# - .gsd/REQUIREMENTS.md (all requirements)
+# - .gsd/QUEUE.md (all three milestones)
+# - .gsd/milestones/M001/M001-CONTEXT.md
+# - .gsd/milestones/M002/M002-CONTEXT.md
+# - .gsd/milestones/M003/M003-CONTEXT.md
+
+Agent: All three milestones are queued. Run /gsd auto to start with M001.
+
+$ /gsd auto
+# Plans and executes M001, then M002, then M003 without stopping
+```
+
+## Source Implementation
+
+The discuss flow is implemented in `guided-flow.ts`:
+
+```typescript
+export async function showDiscuss(
+  ctx: ExtensionCommandContext,
+  pi: ExtensionAPI,
+  base: string,
+): Promise<void> {
+  const state = await deriveState(base);
+  const hasProject = !!(await loadFile(resolveGsdRootFile(base, "PROJECT")));
+  
+  if (!hasProject) {
+    // New project - load discuss-new-project prompt
+    const prompt = loadPrompt("discuss-new-project", {
+      projectPath: base,
+    });
+    pi.sendMessage({ customType: "gsd-discuss", content: prompt, display: false }, 
+                   { triggerTurn: true });
+  } else {
+    // Add milestone - load discuss-add-milestone prompt
+    const prompt = loadPrompt("discuss-add-milestone", {
+      projectPath: base,
+      activeMilestone: state.activeMilestone?.id,
+      queuePath: relGsdRootFile("QUEUE"),
+    });
+    pi.sendMessage({ customType: "gsd-discuss", content: prompt, display: false }, 
+                   { triggerTurn: true });
+  }
+}
+```
+
+## Prompts Used
+
+The discuss flow uses two prompt templates:
+
+### discuss-new-project.md
+
+```markdown
+You are helping the user plan a new GSD project.
+
+Follow these steps:
+
+1. Discuss project goals, tech stack, constraints
+2. Identify 3-5 core user requirements
+3. Define the first milestone (M001) - something deliverable in 1-2 days
+4. Write:
+   - {{projectPath}}/.gsd/PROJECT.md
+   - {{projectPath}}/.gsd/REQUIREMENTS.md
+   - {{projectPath}}/.gsd/QUEUE.md
+   - {{projectPath}}/.gsd/milestones/M001/M001-CONTEXT.md
+
+# Template: PROJECT.md
+...
+
+# Template: REQUIREMENTS.md
+...
+```
+
+### discuss-add-milestone.md
+
+```markdown
+The user wants to add a new milestone to the project.
+
+Current state:
+- Active milestone: {{activeMilestone}}
+- Queue: {{queuePath}}
+
+Follow these steps:
+
+1. Discuss the new scope
+2. Assign milestone ID (increment from highest existing)
+3. Determine priority relative to queued milestones
+4. Write:
+   - {{projectPath}}/.gsd/milestones/M00X/M00X-CONTEXT.md
+   - Update {{queuePath}}
+
+# Template: CONTEXT.md
+...
+```
+
+See `prompts/` directory in the source for full templates.
+
+## Troubleshooting
+
+### Discuss flow doesn't start
+
+**Symptom:** `/gsd discuss` shows no response
+
+**Solution:**
+- Check that you're in a directory where you want to create `.gsd/`
+- Ensure the agent is idle (not already running a task)
+- Try `/reload` to reset extension state
+
+### Context not used during planning
+
+**Symptom:** Auto mode plans a milestone that doesn't match your discussion
+
+**Solution:**
+- Check that `M00X-CONTEXT.md` was written during discuss
+- Review the CONTEXT file - ensure it captured your requirements
+- Re-run discuss to refine: `/gsd discuss` (adds notes to existing CONTEXT)
+
+## Related Commands
+
+- [/gsd](/commands/gsd) - Main command (routes to discuss for new projects)
+- [/gsd queue](/commands/gsd-queue) - View and reorder queue
+- [/gsd auto](/commands/gsd-auto) - Execute planned milestones
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Queue Management" icon="list" href="/commands/gsd-queue">
+    Learn about the milestone queue
+  </Card>
+  <Card title="Auto Mode" icon="play" href="/commands/gsd-auto">
+    Execute your planned milestones
+  </Card>
+</CardGroup>

@@ -1,0 +1,351 @@
+---
+title: "Scout Agent"
+description: "Fast codebase reconnaissance agent for efficient context gathering"
+icon: "magnifying-glass"
+---
+
+## Overview
+
+The Scout agent performs fast codebase reconnaissance and returns compressed, structured findings that other agents can use without re-reading files.
+
+Scout operates in an isolated context window to keep the main conversation clean. The agent explores the codebase and returns a report, not the raw files.
+
+## Purpose
+
+<CardGroup cols={2}>
+  <Card title="Context Efficiency" icon="gauge-high">
+    Explore large codebases without filling the main context window
+  </Card>
+  <Card title="Structured Output" icon="list">
+    Return organized findings with exact line ranges and key code
+  </Card>
+  <Card title="Fast Discovery" icon="bolt">
+    Quickly locate relevant files, types, and dependencies
+  </Card>
+  <Card title="Handoff Ready" icon="hand-holding">
+    Output format designed for consumption by other agents
+  </Card>
+</CardGroup>
+
+## When to Use Scout
+
+Use Scout when you need to:
+- Locate implementation of a feature across multiple files
+- Understand how a system component works
+- Find dependencies between modules
+- Gather context before starting a task
+
+**Don't use Scout for:**
+- Reading a single known file (use Read tool directly)
+- Simple grep searches (use Grep tool directly)
+- Modifying code (use Worker agent)
+
+## Agent Definition
+
+```yaml
+---
+name: scout
+description: Fast codebase recon that returns compressed context for handoff to other agents
+tools: read, grep, find, ls, bash
+---
+```
+
+<ParamField path="name" type="string">
+  Agent identifier: `scout`
+</ParamField>
+
+<ParamField path="description" type="string">
+  Short description of agent purpose
+</ParamField>
+
+<ParamField path="tools" type="array">
+  Available tools: `read`, `grep`, `find`, `ls`, `bash`
+</ParamField>
+
+## Thoroughness Levels
+
+Scout adjusts exploration depth based on task requirements:
+
+<ResponseField name="Quick" type="level">
+  Targeted lookups, key files only. Use for simple questions or well-scoped tasks.
+</ResponseField>
+
+<ResponseField name="Medium" type="level" default>
+  Follow imports, read critical sections. Default level for most tasks.
+</ResponseField>
+
+<ResponseField name="Thorough" type="level">
+  Trace all dependencies, check tests and types. Use for complex refactoring or architecture questions.
+</ResponseField>
+
+## Strategy
+
+Scout follows a systematic approach:
+
+<Steps>
+  <Step title="Locate relevant code">
+    Use grep/find to identify files containing relevant keywords, functions, or patterns
+  </Step>
+  <Step title="Read key sections">
+    Read specific sections of files (not entire files) to understand structure
+  </Step>
+  <Step title="Identify types and interfaces">
+    Extract type definitions, interfaces, and function signatures
+  </Step>
+  <Step title="Note dependencies">
+    Track imports, exports, and relationships between files
+  </Step>
+</Steps>
+
+## Output Format
+
+Scout returns structured findings in markdown format:
+
+### Files Retrieved
+
+List all files explored with exact line ranges:
+
+```markdown
+## Files Retrieved
+
+1. `src/services/stripe.ts` (lines 45-67) - createCheckoutSession function
+2. `src/routes/checkout.ts` (lines 120-145) - POST /checkout endpoint handler
+3. `src/models/subscription.ts` (lines 12-45) - Subscription type and schema
+```
+
+<ParamField path="Files Retrieved" type="section" required>
+  Numbered list of files with exact line ranges and descriptions
+</ParamField>
+
+### Key Code
+
+Include critical types, interfaces, or functions:
+
+```markdown
+## Key Code
+
+```typescript
+interface CreateCheckoutSessionParams {
+  userId: string;
+  planId: string;
+  successUrl: string;
+  cancelUrl: string;
+}
+
+function createCheckoutSession(
+  params: CreateCheckoutSessionParams
+): Promise<Stripe.Checkout.Session> {
+  // implementation from stripe.ts:45-67
+}
+```
+```
+
+<ParamField path="Key Code" type="section" required>
+  Code blocks with critical types, interfaces, or functions extracted from the files
+</ParamField>
+
+### Architecture
+
+Brief explanation of how the pieces connect:
+
+```markdown
+## Architecture
+
+Checkout flow follows service layer pattern:
+- Route handler (`checkout.ts`) validates input
+- Service layer (`stripe.ts`) handles Stripe API calls
+- Controller (`subscription.ts`) manages database operations
+- Model (`subscription.ts`) defines types and schema
+
+Dependencies: checkout.ts → stripe.ts → Stripe SDK
+```
+
+<ParamField path="Architecture" type="section" required>
+  Brief explanation of relationships and data flow between components
+</ParamField>
+
+### Start Here
+
+Recommendation for where to begin:
+
+```markdown
+## Start Here
+
+Start with `src/routes/checkout.ts:120` — the POST handler. This shows:
+- Input validation
+- Call to stripe service
+- Error handling pattern
+
+Then review `createCheckoutSession()` in `stripe.ts:45` to see Stripe API usage.
+```
+
+<ParamField path="Start Here" type="section" required>
+  Which file to look at first and why, with specific line numbers
+</ParamField>
+
+## Example Usage
+
+### Task Context
+
+```typescript
+// Main agent delegates to scout
+const scoutReport = await launchAgent('scout', {
+  task: 'Find implementation of Stripe checkout session creation',
+  thoroughness: 'medium'
+});
+
+// Scout returns structured report
+// Main agent uses report without re-reading files
+```
+
+### Scout Report
+
+```markdown
+## Files Retrieved
+
+1. `src/routes/checkout.ts` (lines 100-150) - POST /checkout endpoint
+2. `src/services/stripe.ts` (lines 45-90) - Session creation logic
+3. `src/models/subscription.ts` (lines 12-35) - Subscription model
+4. `tests/checkout.test.ts` (lines 50-120) - Integration tests
+
+## Key Code
+
+```typescript
+// from stripe.ts:45-67
+export async function createCheckoutSession(
+  userId: string,
+  planId: string
+): Promise<Stripe.Checkout.Session> {
+  const session = await stripe.checkout.sessions.create({
+    customer: userId,
+    line_items: [{ price: planId, quantity: 1 }],
+    mode: 'subscription',
+    success_url: `${process.env.BASE_URL}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${process.env.BASE_URL}/checkout/cancel`,
+  });
+  
+  await db.checkoutSessions.create({
+    sessionId: session.id,
+    userId,
+    createdAt: new Date(),
+  });
+  
+  return session;
+}
+```
+
+```typescript
+// from checkout.ts:120-140
+app.post('/checkout', authenticate, async (req, res) => {
+  const { planId } = req.body;
+  const userId = req.user.id;
+  
+  try {
+    const session = await createCheckoutSession(userId, planId);
+    res.json({ url: session.url });
+  } catch (error) {
+    logger.error('Checkout failed', { error, userId, planId });
+    res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+```
+
+## Architecture
+
+Three-layer architecture:
+
+1. **Route handler** (`checkout.ts`) - HTTP layer, auth, validation
+2. **Service layer** (`stripe.ts`) - Stripe API integration
+3. **Database layer** (`subscription.ts`) - Persistence
+
+Flow: Client → POST /checkout → createCheckoutSession() → Stripe API → DB → Response
+
+Session IDs stored locally for webhook correlation (see S03 plan).
+
+## Start Here
+
+Start with POST /checkout handler at `checkout.ts:120`. This shows the 
+entire request flow including error handling.
+
+Then check `createCheckoutSession()` at `stripe.ts:45` to understand 
+Stripe API usage and session ID storage.
+
+Tests at `checkout.test.ts:50` show end-to-end flow with mocked Stripe.
+```
+
+## Best Practices
+
+<Tip>
+  Always include exact line ranges. "See `file.ts`" is not helpful — "See `file.ts:45-67`" is.
+</Tip>
+
+### Do
+
+- **Specify line ranges** for all file references
+- **Extract key code** rather than describing it
+- **Explain relationships** between components
+- **Recommend starting points** with rationale
+- **Be concise** — other agents will read this report
+
+### Don't
+
+- **Include entire files** — extract relevant sections only
+- **Describe code** when you can show it
+- **List every file** — focus on key files
+- **Use vague references** — be specific with line numbers
+
+## Integration with GSD
+
+GSD uses Scout during several phases:
+
+### During Planning
+
+```markdown
+**Task:** Implement webhook handler
+**Scout mission:** Find existing webhook patterns and event handling code
+```
+
+Scout report informs task planning and file scope.
+
+### During Execution
+
+```markdown
+**Task T03:** Implement webhook handler
+**Scout mission:** Locate webhook signature verification and event routing
+```
+
+Scout report provides context for Worker agent.
+
+### During Summarizing
+
+```markdown
+**Summary generation:** Document affected systems
+**Scout mission:** Find all callers of modified functions
+```
+
+Scout report helps identify impact of changes.
+
+## Performance Characteristics
+
+<ResponseField name="Context usage" type="metric">
+  Scout runs in isolated context. Report is typically 5-10k tokens.
+</ResponseField>
+
+<ResponseField name="Time" type="metric">
+  Quick: 30-60s, Medium: 1-2min, Thorough: 2-5min
+</ResponseField>
+
+<ResponseField name="Accuracy" type="metric">
+  High for well-structured codebases. May miss dynamic imports or reflection.
+</ResponseField>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Worker Agent" icon="wrench" href="/api/agents/worker">
+    General-purpose agent for implementation work
+  </Card>
+  <Card title="Researcher Agent" icon="globe" href="/api/agents/researcher">
+    Web research agent for external information
+  </Card>
+</CardGroup>

@@ -1,0 +1,565 @@
+---
+title: Mac Tools
+description: Automate native macOS applications via Accessibility APIs
+---
+
+The Mac Tools extension provides full automation of native macOS applications (Finder, TextEdit, Safari, Xcode, etc.) via Apple's Accessibility APIs. It's implemented as a Swift CLI that communicates with the TypeScript extension via JSON protocol.
+
+<Warning>
+  **macOS only.** This extension requires macOS and does not work on Linux or Windows.
+</Warning>
+
+## Overview
+
+Mac Tools enables:
+
+- **App control**: Launch, activate, quit native apps
+- **UI discovery**: Find elements via accessibility tree search
+- **Interaction**: Click buttons, type into fields, read attributes
+- **Visual verification**: Screenshot windows for confirmation
+- **Permission checking**: Verify Accessibility and Screen Recording permissions
+
+## Architecture
+
+- **Swift CLI** (`swift-cli/`): Handles all macOS API calls
+- **JSON protocol**: stdin `{ command, params }` → stdout `{ success, data?, error? }`
+- **Mtime-based caching**: Recompiles only when source files change
+- **Auto-compilation**: First use compiles automatically (requires Xcode CLI tools)
+
+## Permissions Required
+
+Mac Tools requires two macOS permissions:
+
+### Accessibility
+
+Required for all UI automation (find, click, type, read).
+
+**Grant in:** System Settings > Privacy & Security > Accessibility
+
+### Screen Recording
+
+Required for `mac_screenshot` only.
+
+**Grant in:** System Settings > Privacy & Security > Screen Recording
+
+Check permissions:
+
+```typescript
+mac_check_permissions()
+```
+
+Returns:
+
+```json
+{
+  "accessibilityEnabled": true,
+  "screenRecordingEnabled": false
+}
+```
+
+## Core Tools
+
+### App Management
+
+```typescript
+// List running apps
+mac_list_apps({ includeBackground: false })
+
+// Launch an app
+mac_launch_app({ name: "TextEdit" })
+mac_launch_app({ bundleId: "com.apple.TextEdit" })
+
+// Bring app to front
+mac_activate_app({ name: "TextEdit" })
+
+// Quit an app
+mac_quit_app({ name: "TextEdit" })
+```
+
+### UI Discovery
+
+```typescript
+// Search for elements
+mac_find({
+  app: "TextEdit",
+  mode: "search",
+  role: "AXButton",
+  title: "New Document"
+})
+
+// Get UI tree structure
+mac_get_tree({
+  app: "TextEdit",
+  maxDepth: 3,
+  maxCount: 50
+})
+
+// Get focused element
+mac_find({
+  app: "TextEdit",
+  mode: "focused"
+})
+```
+
+### Interaction
+
+```typescript
+// Click an element
+mac_click({
+  app: "TextEdit",
+  role: "AXButton",
+  title: "New Document"
+})
+
+// Type into a field
+mac_type({
+  app: "TextEdit",
+  role: "AXTextArea",
+  text: "Hello, world!"
+})
+
+// Read attribute value
+mac_read({
+  app: "TextEdit",
+  role: "AXTextArea",
+  attribute: "AXValue"
+})
+```
+
+### Windows
+
+```typescript
+// List app windows
+mac_list_windows({ app: "Safari" })
+
+// Screenshot a window
+mac_screenshot({
+  windowId: 12345,
+  format: "jpeg",
+  quality: 0.8
+})
+```
+
+## Element Discovery
+
+The `mac_find` tool supports three modes:
+
+### 1. Search Mode (Default)
+
+Find elements matching criteria:
+
+```typescript
+mac_find({
+  app: "Finder",
+  role: "AXButton",
+  title: "New Folder",
+  matchType: "exact"  // or "contains"
+})
+```
+
+**Search Criteria:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `role` | AX role (e.g., `AXButton`, `AXTextField`) |
+| `title` | Element title/label |
+| `value` | Element value |
+| `identifier` | Unique identifier |
+| `matchType` | `exact` or `contains` |
+
+**Returns:**
+
+```
+3 element(s) found:
+1. AXButton "New Folder"
+2. AXButton "New Window"
+3. AXMenuItem "New Folder"
+```
+
+### 2. Tree Mode
+
+Dump the accessibility tree:
+
+```typescript
+mac_find({
+  app: "TextEdit",
+  mode: "tree",
+  maxDepth: 5,
+  maxCount: 100
+})
+```
+
+**Returns:**
+
+```
+AXApplication "TextEdit"
+  AXWindow "Untitled"
+    AXToolbar
+      AXButton "New Document"
+      AXButton "Save"
+    AXScrollArea
+      AXTextArea [value: "Hello world"]
+```
+
+### 3. Focused Mode
+
+Get the currently focused element:
+
+```typescript
+mac_find({
+  app: "TextEdit",
+  mode: "focused"
+})
+```
+
+**Returns:**
+
+```
+Focused element: AXTextArea [editing in progress]
+```
+
+## Common Roles
+
+| Role | Description | Example |
+|------|-------------|----------|
+| `AXButton` | Clickable button | "Save", "Cancel" |
+| `AXTextField` | Single-line text input | Email field |
+| `AXTextArea` | Multi-line text input | Document editor |
+| `AXStaticText` | Read-only label | "File Name:" |
+| `AXMenuItem` | Menu item | "File" > "New" |
+| `AXCheckBox` | Checkbox | "Show hidden files" |
+| `AXPopUpButton` | Dropdown menu | Format selector |
+| `AXWindow` | Application window | Document window |
+| `AXScrollArea` | Scrollable region | Document view |
+
+Full list: https://developer.apple.com/documentation/applicationservices/carbon_accessibility/roles
+
+## Interaction Pattern
+
+The recommended workflow is **discover → act → verify**:
+
+### 1. Discover
+
+Find the UI structure:
+
+```typescript
+mac_get_tree({
+  app: "TextEdit",
+  maxDepth: 3,
+  maxCount: 50
+})
+```
+
+### 2. Act
+
+Perform the action:
+
+```typescript
+mac_click({
+  app: "TextEdit",
+  role: "AXButton",
+  title: "New Document"
+})
+```
+
+### 3. Verify
+
+Confirm the result:
+
+```typescript
+mac_read({
+  app: "TextEdit",
+  role: "AXWindow",
+  title: "Untitled",
+  attribute: "AXTitle"
+})
+// Returns: AXTitle: Untitled
+```
+
+Or use screenshots for visual verification:
+
+```typescript
+const windows = await mac_list_windows({ app: "TextEdit" })
+mac_screenshot({ windowId: windows[0].windowId })
+```
+
+## Example: Create Document in TextEdit
+
+```typescript
+// 1. Launch TextEdit (if not running)
+mac_launch_app({ name: "TextEdit" })
+
+// 2. Activate it
+mac_activate_app({ name: "TextEdit" })
+
+// 3. Discover UI
+mac_get_tree({
+  app: "TextEdit",
+  maxDepth: 3
+})
+// Shows: AXButton "New Document" at depth 2
+
+// 4. Click New Document
+mac_click({
+  app: "TextEdit",
+  role: "AXButton",
+  title: "New Document"
+})
+
+// 5. Type content
+mac_type({
+  app: "TextEdit",
+  role: "AXTextArea",
+  text: "This is a test document."
+})
+
+// 6. Verify content
+mac_read({
+  app: "TextEdit",
+  role: "AXTextArea",
+  attribute: "AXValue"
+})
+// Returns: AXValue: This is a test document.
+```
+
+## Screenshots
+
+```typescript
+// Get window list
+const result = await mac_list_windows({ app: "Safari" })
+// Returns: [{ windowId: 12345, title: "Google", ... }]
+
+// Screenshot the window
+mac_screenshot({
+  windowId: 12345,
+  format: "jpeg",  // or "png"
+  quality: 0.8,     // JPEG quality (0-1)
+  retina: false     // Full pixel resolution
+})
+```
+
+**Returns:**
+
+```json
+{
+  "content": [
+    { "type": "text", "text": "Screenshot: 1280x800 jpeg" },
+    { "type": "image", "data": "<base64>", "mimeType": "image/jpeg" }
+  ]
+}
+```
+
+**Format Options:**
+
+- `jpeg`: Smaller files, lossy compression (good for verification)
+- `png`: Larger files, lossless (good for archival/transparency)
+
+**Retina:**
+
+- `false` (default): Nominal resolution (1280x800 → 1280x800)
+- `true`: Full pixel resolution (1280x800 → 2560x1600 on retina)
+
+## Attribute Reading
+
+```typescript
+// Read single attribute
+mac_read({
+  app: "TextEdit",
+  role: "AXButton",
+  title: "Save",
+  attribute: "AXEnabled"
+})
+// Returns: AXEnabled: true
+
+// Read multiple attributes
+mac_read({
+  app: "TextEdit",
+  role: "AXTextArea",
+  attributes: ["AXValue", "AXSelectedText", "AXNumberOfCharacters"]
+})
+// Returns:
+// AXValue: Hello world
+// AXSelectedText: world
+// AXNumberOfCharacters: 11
+```
+
+**Common Attributes:**
+
+| Attribute | Description |
+|-----------|-------------|
+| `AXValue` | Text content or state |
+| `AXEnabled` | Whether enabled |
+| `AXFocused` | Whether focused |
+| `AXPosition` | Screen coordinates |
+| `AXSize` | Dimensions |
+| `AXTitle` | Label/title |
+| `AXDescription` | Help text |
+| `AXRole` | Element type |
+
+Full list: https://developer.apple.com/documentation/applicationservices/carbon_accessibility/attributes
+
+## Mac Tools vs Browser Tools
+
+| Feature | Mac Tools | Browser Tools |
+|---------|-----------|---------------|
+| **Target** | Native macOS apps | Web pages in browser |
+| **APIs** | Accessibility APIs | Playwright/Chrome DevTools |
+| **Use for** | Finder, TextEdit, Xcode | Testing web UIs |
+| **Screenshots** | Window-based | Full page or element |
+| **Permissions** | Accessibility + Screen Recording | None |
+
+**When to use Mac Tools:**
+- Controlling native Mac apps (Finder, Mail, Xcode)
+- System-level automation
+- Testing Mac-specific features
+
+**When to use Browser Tools:**
+- Web page automation
+- Testing web apps
+- Scraping dynamic sites
+
+<Note>
+  If you need to interact with a website in Safari or Chrome, use **browser-tools**, not mac-tools. Mac-tools controls the browser's native UI (menus, tabs, address bar), not web page content.
+</Note>
+
+## Best Practices
+
+### 1. Start with Narrow Tree Queries
+
+<CodeGroup>
+```typescript
+// Good: Start small
+mac_get_tree({
+  app: "TextEdit",
+  maxDepth: 3,
+  maxCount: 50
+})
+```
+
+```typescript
+// Wasteful: Full tree dump
+mac_get_tree({
+  app: "TextEdit",
+  maxDepth: 10,
+  maxCount: 500
+})
+```
+</CodeGroup>
+
+Increase limits only if the element you need isn't visible.
+
+### 2. Verify After Actions
+
+```typescript
+// Click button
+mac_click({ app: "TextEdit", role: "AXButton", title: "Save" })
+
+// Verify by reading window title
+mac_read({ app: "TextEdit", role: "AXWindow", attribute: "AXTitle" })
+// Should no longer say "Untitled — Edited"
+```
+
+### 3. Use Screenshots Sparingly
+
+<CodeGroup>
+```typescript
+// Good: Use accessibility first
+mac_read({ app: "Finder", role: "AXStaticText", attribute: "AXValue" })
+```
+
+```typescript
+// Wasteful: Screenshot for simple text check
+mac_screenshot({ windowId: 12345 })
+```
+</CodeGroup>
+
+Screenshots are large payloads. Use only when visual verification is needed.
+
+### 4. Match Type Selection
+
+```typescript
+// Use "contains" for partial matches
+mac_find({
+  app: "Safari",
+  role: "AXButton",
+  title: "Reload",
+  matchType: "contains"  // Matches "Reload This Page"
+})
+
+// Use "exact" when you know the full title
+mac_find({
+  app: "Finder",
+  role: "AXMenuItem",
+  title: "New Folder",
+  matchType: "exact"
+})
+```
+
+## Troubleshooting
+
+### Permission Denied
+
+```
+Error: AXError: AXUIElement is not valid
+```
+
+**Solution:** Grant Accessibility permission:
+
+1. Run `mac_check_permissions()`
+2. Open System Settings > Privacy & Security > Accessibility
+3. Add your terminal app (Terminal.app, iTerm.app, etc.)
+4. Restart terminal
+
+### Screenshot Returns Black Image
+
+**Cause:** Screen Recording permission not granted.
+
+**Solution:**
+
+1. Run `mac_check_permissions()`
+2. Open System Settings > Privacy & Security > Screen Recording
+3. Add your terminal app
+4. Restart terminal
+
+### Element Not Found
+
+```
+No elements found matching: role:AXButton title:"Save"
+```
+
+**Solutions:**
+
+1. Check spelling (case-sensitive)
+2. Use `mac_get_tree` to see actual element hierarchy
+3. Try `matchType: "contains"` for partial matches
+4. Verify app is frontmost with `mac_activate_app`
+
+### Timeout on Click/Type
+
+```
+mac-agent timed out after 30s (command: clickElement)
+```
+
+**Cause:** App is slow to respond to AXPress action.
+
+**Solution:** Wait a moment and check if action completed:
+
+```typescript
+// Wait for app to settle
+await new Promise(r => setTimeout(r, 2000))
+
+// Verify action completed
+mac_read({ app: "TextEdit", role: "AXTextArea", attribute: "AXValue" })
+```
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="Browser Tools" icon="browser" href="/extensions/browser-tools">
+    For web page automation (use this for Safari/Chrome content)
+  </Card>
+  
+  <Card title="Background Shell" icon="terminal" href="/extensions/background-shell">
+    For running processes alongside Mac app automation
+  </Card>
+</CardGroup>

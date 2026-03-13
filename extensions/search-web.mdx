@@ -1,0 +1,386 @@
+---
+title: Search the Web
+description: Ground the agent in real-world web content with search and page extraction
+---
+
+The Search the Web extension provides three tools for accessing live web content: rich search with Brave API, page extraction with Jina Reader, and single-call search+read via Brave LLM Context API.
+
+## Overview
+
+Search the Web enables the agent to:
+
+- Search the web with filtering, freshness controls, and AI summarization
+- Extract clean markdown from any URL
+- Get pre-processed, relevance-scored page content in one call
+- Use native Anthropic web search when available (no API key needed)
+
+## Native Anthropic Web Search (v4)
+
+When using Anthropic models, the extension automatically injects the native `web_search_20250305` tool, eliminating the need for a `BRAVE_API_KEY`. Native search is:
+
+- **Automatic**: Injected via `before_provider_request` hook
+- **Billed through Anthropic**: $0.01 per search on your Anthropic API key
+- **Seamless**: No configuration needed
+
+Custom Brave-based tools (`search-the-web`, `search_and_read`) are disabled when using Anthropic without a `BRAVE_API_KEY` to avoid tool confusion.
+
+<Note>
+  `fetch_page` (Jina Reader) remains available regardless of provider, as it works without an API key at lower rate limits.
+</Note>
+
+## Tools
+
+### 1. search-the-web
+
+Rich web search with Brave API. Returns links and snippets for selective browsing.
+
+```typescript
+search_the_web({
+  query: "Next.js 14 server actions",
+  count: 10,
+  freshness: "week"
+})
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `query` | string | Search query |
+| `count` | number | Results to return (1-20, default: 10) |
+| `freshness` | string | Time filter: `day`, `week`, `month`, `year` |
+| `domain` | string | Restrict to domain (e.g., `github.com`) |
+| `useAiSummarizer` | boolean | Enable Brave AI summarizer (default: false) |
+
+**Returns:**
+
+```json
+{
+  "query": "Next.js 14 server actions",
+  "resultCount": 10,
+  "results": [
+    {
+      "title": "Server Actions - Next.js Docs",
+      "url": "https://nextjs.org/docs/app/building-your-application/data-fetching/server-actions",
+      "description": "Server Actions are asynchronous functions that are executed on the server...",
+      "age": "2024-03-10"
+    }
+  ],
+  "spellcheck": null,
+  "aiSummary": "Server Actions in Next.js 14 allow...",
+  "moreResultsAvailable": true
+}
+```
+
+### 2. fetch_page
+
+Extract clean markdown from any URL via Jina Reader.
+
+```typescript
+fetch_page({
+  url: "https://nextjs.org/docs/app/building-your-application/data-fetching/server-actions"
+})
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `url` | string | URL to fetch |
+| `offset` | number | Line offset for continuation |
+| `limit` | number | Max lines to return |
+| `selector` | string | CSS selector to target (Jina X-Target-Selector) |
+
+**Returns:**
+
+```json
+{
+  "url": "https://nextjs.org/docs/...",
+  "title": "Server Actions - Next.js",
+  "content": "# Server Actions\n\nServer Actions are...",
+  "contentType": "text/markdown",
+  "charCount": 12500,
+  "lineCount": 450,
+  "cached": false
+}
+```
+
+**Features:**
+
+- **Continuation reading**: Use `offset` and `limit` for long pages
+- **Selector targeting**: Extract specific page sections
+- **Content-type aware**: JSON passthrough, PDF detection
+- **In-session caching**: Repeated fetches are free
+
+### 3. search_and_read
+
+Single-call search + content extraction via Brave LLM Context API.
+
+```typescript
+search_and_read({
+  query: "How do Next.js server actions handle form submissions?",
+  count: 5
+})
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `query` | string | Search query |
+| `count` | number | Sources to process (1-20, default: 5) |
+
+**Returns:**
+
+```json
+{
+  "query": "How do Next.js server actions...",
+  "resultCount": 5,
+  "results": [
+    {
+      "title": "Server Actions - Next.js Docs",
+      "url": "https://nextjs.org/docs/...",
+      "score": 0.95,
+      "content": "Server Actions can be used with forms..."
+    }
+  ],
+  "totalCharacters": 8500
+}
+```
+
+Best for: Getting content immediately without a separate fetch step.
+
+## API Keys & Rate Limits
+
+### Brave API
+
+```bash
+export BRAVE_API_KEY=your_key_here
+```
+
+- **Free tier**: 2,000 queries/month
+- **Get a key**: https://brave.com/search/api
+- **Not required**: When using Anthropic models (native search available)
+
+### Jina API (Optional)
+
+```bash
+export JINA_API_KEY=your_key_here
+```
+
+- **Without key**: 20 requests/minute
+- **With key**: 200 requests/minute
+- **Get a key**: https://jina.ai/reader
+
+## Error Handling
+
+The extension provides structured error taxonomy:
+
+| Error Type | Meaning | Resolution |
+|------------|---------|------------|
+| `auth_error` | Invalid API key | Check `BRAVE_API_KEY` or `JINA_API_KEY` |
+| `rate_limited` | Quota exceeded | Wait or upgrade API plan |
+| `network_error` | Connection failed | Retry or check URL |
+| `timeout` | Request timed out | Increase timeout or simplify query |
+| `parse_error` | Invalid response | Report as bug |
+
+## Best Practices
+
+### 1. Search Before Fetching
+
+<CodeGroup>
+```typescript
+// Good: Search to find best source
+search_the_web({ query: "Next.js 14 server actions" })
+// Review results, then fetch the best one
+fetch_page({ url: "https://nextjs.org/docs/..." })
+```
+
+```typescript
+// Alternative: One-shot with search_and_read
+search_and_read({
+  query: "Next.js 14 server actions",
+  count: 3
+})
+```
+</CodeGroup>
+
+### 2. Use Freshness Filters
+
+```typescript
+// Good: Recent results for fast-moving topics
+search_the_web({
+  query: "Next.js 15 release notes",
+  freshness: "week"
+})
+
+// Good: Domain scoping for official docs
+search_the_web({
+  query: "server actions",
+  domain: "nextjs.org"
+})
+```
+
+### 3. Handle Long Pages
+
+```typescript
+// First fetch: Get overview
+const result1 = await fetch_page({
+  url: "https://long-article.com",
+  limit: 500
+})
+
+// If truncated, continue reading
+if (result1.truncated) {
+  const result2 = await fetch_page({
+    url: "https://long-article.com",
+    offset: 500,
+    limit: 500
+  })
+}
+```
+
+### 4. Target Specific Sections
+
+```typescript
+// Extract only the API reference section
+fetch_page({
+  url: "https://docs.example.com/api",
+  selector: "#api-reference"
+})
+```
+
+## Advanced Features
+
+### Spellcheck Surfacing
+
+Brave API returns query corrections:
+
+```typescript
+search_the_web({ query: "nextjs servr actions" })
+// Returns: { spellcheck: "nextjs server actions" }
+```
+
+### Latency Tracking
+
+All tools return API timing in `details`:
+
+```json
+{
+  "details": {
+    "latency": 450,
+    "cached": false,
+    "rateLimit": {
+      "remaining": 1950,
+      "reset": 1234567890
+    }
+  }
+}
+```
+
+### Content-Type Awareness
+
+`fetch_page` handles different content types:
+
+```typescript
+// JSON API response
+fetch_page({ url: "https://api.example.com/data" })
+// Returns: { contentType: "application/json", content: "{...}" }
+
+// PDF document
+fetch_page({ url: "https://example.com/paper.pdf" })
+// Returns: { contentType: "application/pdf", content: "[PDF extraction...]" }
+```
+
+## Example: Research Workflow
+
+```typescript
+// 1. Search for recent articles
+const search = await search_the_web({
+  query: "Next.js 15 performance improvements",
+  freshness: "month",
+  count: 5
+})
+
+// 2. Read the top result
+const article = await fetch_page({
+  url: search.results[0].url
+})
+
+// 3. Extract specific section if needed
+const apiSection = await fetch_page({
+  url: search.results[1].url,
+  selector: ".api-reference"
+})
+
+// Alternative: One-shot approach
+const context = await search_and_read({
+  query: "Next.js 15 performance improvements",
+  count: 3
+})
+// Gets pre-processed content from top 3 sources
+```
+
+## Slash Commands
+
+### /search-provider
+
+Switch search provider or check current configuration:
+
+```bash
+# Check current provider
+/search-provider
+
+# Force Brave (with API key)
+/search-provider brave
+
+# Force Anthropic native (if available)
+/search-provider anthropic
+```
+
+## Troubleshooting
+
+### No Search Results
+
+```
+No results found for "obscure topic"
+```
+
+**Solutions:**
+- Broaden the query
+- Remove freshness filter
+- Try `search_and_read` (uses different ranking)
+
+### Rate Limited
+
+```
+rate_limited: Brave API quota exceeded (2000/month)
+```
+
+**Solutions:**
+- Wait for quota reset
+- Upgrade Brave API plan
+- Use Anthropic native search (no quota)
+
+### Jina Fetch Failed
+
+```
+Jina fetch failed: 403 Forbidden
+```
+
+**Solutions:**
+- Some sites block Jina Reader
+- Try with `JINA_API_KEY` for better access
+- Use browser-tools for JS-heavy sites
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="Context7" icon="book" href="/extensions/context7">
+    For library-specific documentation lookup
+  </Card>
+  
+  <Card title="Browser Tools" icon="browser" href="/extensions/browser-tools">
+    For interactive web scraping and testing
+  </Card>
+</CardGroup>

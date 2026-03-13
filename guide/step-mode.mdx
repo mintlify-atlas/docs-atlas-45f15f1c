@@ -1,0 +1,339 @@
+---
+title: Step Mode
+description: Execute one unit at a time with review pauses between each step
+---
+
+Step mode is GSD's interactive execution mode. It runs the same state machine as auto mode, but pauses between units with a wizard showing what completed and what's next. You stay in the loop, reviewing output and advancing when ready.
+
+## When to Use Step Mode
+
+Step mode is the on-ramp. Use it when:
+
+- **Learning the workflow** — see exactly what each phase does
+- **High-stakes changes** — review before proceeding to the next unit
+- **Debugging a stuck plan** — step through to find where execution derails
+- **Active development** — stay engaged while GSD executes your plan
+
+<Tip>
+You can switch from step mode to auto mode at any wizard pause. The wizard offers "Switch to auto" as an action.
+</Tip>
+
+## Starting Step Mode
+
+```bash
+gsd
+/gsd next
+```
+
+Both commands enter step mode. `/gsd next` is an explicit alias for clarity.
+
+## How It Works
+
+### The Execution Loop
+
+1. **Derive state** — GSD reads `.gsd/` files to determine the next unit of work
+2. **Execute unit** — Fresh session, focused prompt, LLM executes
+3. **Show wizard** — Unit completes, wizard shows what happened and what's next
+4. **Wait for input** — You choose: continue, switch to auto, view status, or pause
+
+### Example Session
+
+```bash
+$ gsd
+/gsd next
+```
+
+**First wizard (no roadmap yet)**:
+
+```
+GSD — M001: API Foundation
+
+No roadmap yet. Ready to create one.
+
+→ Create roadmap
+  Research and decompose into slices with a boundary map.
+
+→ Discuss first
+  Capture decisions on gray areas before planning.
+
+Run /gsd when ready.
+```
+
+You pick "Create roadmap". GSD dispatches a fresh session with research and planning instructions.
+
+**Second wizard (roadmap exists)**:
+
+```
+GSD — M001: API Foundation
+
+Roadmap complete. Ready to execute.
+
+→ Plan S01: Data Model
+  Research and decompose into tasks.
+
+→ Switch to auto
+  Continue without pausing between steps.
+
+→ View status
+  See milestone progress.
+
+Run /gsd next when ready to continue.
+```
+
+You pick "Plan S01". GSD plans the slice, pauses again.
+
+**Third wizard (slice planned)**:
+
+```
+GSD — M001 / S01: Data Model
+
+S01 planned. Ready to execute first task.
+
+→ Execute T01: Core Types
+  Start working on "Define user, project, and task types".
+
+→ Switch to auto
+  Execute this and all remaining tasks automatically.
+
+→ View status
+  See slice progress before starting.
+
+Run /gsd next when ready to continue.
+```
+
+You pick "Execute T01". GSD executes the task, pauses again.
+
+**Pattern repeats** — each unit completes, wizard shows next action, you advance.
+
+## Wizard Actions
+
+Every wizard offers contextual actions based on current state:
+
+<CardGroup cols={2}>
+  <Card title="Continue" icon="arrow-right">
+    Execute the next unit (recommended action)
+  </Card>
+  <Card title="Switch to auto" icon="forward-fast">
+    Continue without pausing between steps
+  </Card>
+  <Card title="View status" icon="chart-bar">
+    Open the dashboard to see progress
+  </Card>
+  <Card title="Not yet" icon="pause">
+    Pause and return to the conversation
+  </Card>
+</CardGroup>
+
+## What Counts as a Unit?
+
+A **unit** is one context-window-sized piece of work:
+
+| Unit Type | When It Runs |
+|-----------|-------------|
+| `research-milestone` | Before creating a roadmap |
+| `plan-milestone` | After research, creates the roadmap |
+| `research-slice` | Before planning a slice (optional) |
+| `plan-slice` | Decomposes a slice into tasks |
+| `execute-task` | Runs one task from the plan |
+| `complete-slice` | Writes summary, UAT, merges to main |
+| `reassess-roadmap` | Checks if the roadmap still makes sense |
+| `run-uat` | Runs user acceptance tests |
+
+Each unit gets a **fresh session** with only the relevant files pre-loaded.
+
+## State Between Units
+
+Step mode preserves state between pauses:
+
+- **Completed units** — Tracked in `.gsd/completed-units.json`
+- **Current branch** — Slice work stays on `gsd/M001/S01` branch
+- **Metrics** — Cost and token usage accumulate across units
+- **Dashboard data** — Elapsed time, progress, totals
+
+Pressing Escape during execution pauses step mode. Type `/gsd next` to resume from disk state.
+
+## Progress Tracking
+
+While a unit executes, a progress widget shows:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+● GSD  NEXT                                              2m 34s
+
+API Foundation
+S01: Data Model
+
+▸ executing  T01: Core Types                          EXECUTE
+
+███████████████░░░░░░░░░  1/4 slices  ·  task 1/3
+
+→ then continue S01
+
+~/my-project (gsd/M001/S01)
+↑12k ↓3k R45k W8k $0.089  62.3%/200k     claude-sonnet-4-6
+
+esc pause                              Ctrl+Alt+G dashboard
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Widget sections**:
+- **Header** — Mode (NEXT), elapsed time, pulsing status dot
+- **Context** — Milestone, slice, task being executed
+- **Progress bar** — Slices completed, current task number
+- **Next step** — What happens after this unit
+- **Footer** — Branch, tokens (input/output/cache), cost, context usage, model
+
+## Switching to Auto Mode
+
+At any wizard pause, pick "Switch to auto". GSD continues without pausing.
+
+Or during execution, press Escape to pause, then run:
+
+```bash
+/gsd auto
+```
+
+All state carries over. The conversation remains intact.
+
+## Resuming After a Pause
+
+If you paused step mode (Escape or "Not yet"):
+
+```bash
+/gsd next
+```
+
+GSD reads disk state, derives the next unit, and continues from where you left off.
+
+## Example: Full Slice in Step Mode
+
+Starting with a planned slice `S01` with 3 tasks:
+
+**Step 1** — Execute T01:
+```
+/gsd next
+→ Execute T01: Core Types
+```
+
+GSD executes T01, writes `T01-SUMMARY.md`, marks `[x]` in plan, commits.
+
+**Wizard shows**:
+```
+T01 complete.
+
+→ Execute T02: File Parser
+  Start working on "Parse markdown plan files".
+```
+
+**Step 2** — Execute T02:
+```
+→ Continue
+```
+
+GSD executes T02, writes summary, commits.
+
+**Step 3** — Execute T03:
+```
+→ Continue
+```
+
+GSD executes T03, writes summary, commits.
+
+**Wizard shows**:
+```
+All tasks complete.
+
+→ Complete S01: Data Model
+  Write slice summary, UAT, mark done, and squash-merge to main.
+```
+
+**Step 4** — Complete slice:
+```
+→ Continue
+```
+
+GSD writes `S01-SUMMARY.md`, `S01-UAT.md`, marks slice `[x]` in roadmap, merges `gsd/M001/S01` → `main`.
+
+**Wizard shows**:
+```
+S01 complete.
+
+→ Reassess roadmap
+  Check if the plan still makes sense after S01.
+```
+
+Pattern repeats for every slice until the milestone completes.
+
+## When Step Mode Stops
+
+Step mode stops automatically when:
+
+- **Milestone complete** — All slices done, summary written
+- **Blocked** — Missing file, blocker discovered, conflict unresolved
+- **Budget ceiling hit** — Cost limit reached (if configured)
+- **You choose "Not yet"** — Paused, waiting for `/gsd next`
+
+## Step Mode vs Auto Mode
+
+| | Step Mode | Auto Mode |
+|---|-----------|----------|
+| **Pauses** | Between every unit | No pauses (runs to completion) |
+| **Control** | You advance each step | Fully autonomous |
+| **Review** | See output before continuing | Walk away, review later |
+| **Speed** | Manual pacing | Maximum throughput |
+| **Use case** | Learning, high-stakes, debugging | Shipping, iteration, velocity |
+| **Command** | `/gsd next` | `/gsd auto` |
+
+<Info>
+Both modes use the same state machine, same verification ladder, same crash recovery. The only difference is the pause.
+</Info>
+
+## Common Patterns
+
+### Review-Heavy Development
+
+Use step mode for the first slice of a new milestone, then switch to auto:
+
+```bash
+# Plan and execute S01 manually
+/gsd next
+# ... advance through S01 tasks, reviewing each ...
+
+# Switch to auto for S02-S04
+/gsd auto
+```
+
+### Selective Stepping
+
+Run auto mode, pause when needed:
+
+```bash
+/gsd auto
+# ... auto runs S01, S02 ...
+# Press Escape to pause before S03
+
+# Review S02 output
+/gsd status
+
+# Continue manually for S03
+/gsd next
+```
+
+### Debugging a Stuck Unit
+
+If auto mode hit a stuck loop, use step mode to isolate the issue:
+
+```bash
+# Auto mode stopped: "Loop detected: execute-task M001/S02/T03 dispatched 3 times"
+
+# Fix the blocker manually, then step through
+/gsd next
+→ Execute T03
+# ... watch it execute, see where it fails ...
+```
+
+## Related
+
+- [Auto Mode](/guide/auto-mode) — Autonomous execution without pauses
+- [Two-Terminal Workflow](/guide/two-terminal-workflow) — Run auto in one terminal, steer from another
+- [Verification](/guide/verification) — How GSD checks that tasks are actually done

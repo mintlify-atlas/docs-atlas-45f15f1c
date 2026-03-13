@@ -1,0 +1,404 @@
+---
+title: Context Engineering
+description: How GSD manages context artifacts to keep the LLM focused
+---
+
+## The Problem
+
+LLMs have large context windows, but filling them with the wrong information wastes tokens and degrades output quality. GSD solves this by:
+
+1. **Pre-loading context** — injecting exactly the right files at dispatch time
+2. **Structured artifacts** — every file has a purpose and a schema
+3. **Hierarchical summaries** — compress completed work for downstream tasks
+
+## File Locations
+
+All artifacts live in `.gsd/` at the project root:
+
+```
+.gsd/
+  state.md                                  # Dashboard — always read first
+  decisions.md                              # Append-only decisions register
+  milestones/
+    M001/
+      roadmap.md                            # Milestone plan (checkboxes = state)
+      context.md                            # Optional: user decisions from discuss phase
+      research.md                           # Optional: codebase/tech research
+      summary.md                            # Milestone rollup (updated as slices complete)
+      slices/
+        S01/
+          plan.md                           # Task decomposition for this slice
+          context.md                        # Optional: slice-level user decisions
+          research.md                       # Optional: slice-level research
+          summary.md                        # Slice summary (written on completion)
+          uat.md                            # Non-blocking human test script
+          continue.md                       # Ephemeral: resume point if interrupted
+          tasks/
+            T01-plan.md                     # Individual task plan
+            T01-summary.md                  # Task summary with frontmatter
+```
+
+## Core Artifacts
+
+### STATE.md — The Dashboard
+
+From the `state.md` template:
+
+```markdown
+# GSD State
+
+**Active Milestone:** M001 — Title
+**Active Slice:** S02 — Slice Title
+**Active Task:** T01 — Task Title
+**Phase:** Executing
+**Slice Branch:** gsd/M001/S02
+**Active Workspace:** default
+**Next Action:** Exact next thing to do.
+**Last Updated:** 2026-03-13
+**Requirements Status:** 5 active · 2 validated · 1 deferred · 0 out of scope
+
+## Recent Decisions
+
+- Decision 1
+- Decision 2
+
+## Blockers
+
+- (none)
+```
+
+From `types.ts`:
+
+```typescript
+export type Phase = 
+  | 'pre-planning' 
+  | 'discussing' 
+  | 'researching' 
+  | 'planning' 
+  | 'executing' 
+  | 'verifying' 
+  | 'summarizing' 
+  | 'advancing' 
+  | 'completing-milestone' 
+  | 'replanning-slice' 
+  | 'complete' 
+  | 'paused' 
+  | 'blocked';
+```
+
+<Info>
+  `state.md` is a **derived cache**, not the source of truth. It's rebuilt from `roadmap.md`, `plan.md`, and summary files.
+</Info>
+
+### DECISIONS.md — The Append-Only Register
+
+From the `decisions.md` template:
+
+```markdown
+# Decisions Register
+
+<!-- Append-only. Never edit or remove existing rows.
+     To reverse a decision, add a new row that supersedes it.
+     Read this file at the start of any planning or research phase. -->
+
+| # | When | Scope | Decision | Choice | Rationale | Revisable? |
+|---|------|-------|----------|--------|-----------|------------|
+| D001 | M001/S01 | library | Validation library | Zod | Type inference, already in deps | No |
+| D002 | M001/S01 | arch | Session storage | HTTP-only cookies | Security, SSR compat | Yes — if mobile added |
+| D003 | M001/S02 | api | API versioning | URL prefix /v1 | Simple, fits scale | Yes |
+```
+
+**Rules:**
+- **Append-only** — rows are never edited or removed. To reverse a decision, add a new row that supersedes it.
+- **#** — Sequential ID (`D001`, `D002`, ...), never reused.
+- **When** — Where the decision was made: `M001`, `M001/S01`, or `M001/S01/T02`.
+- **Scope** — Category tag: `arch`, `pattern`, `library`, `data`, `api`, `scope`, `convention`.
+- **Revisable?** — `No`, or `Yes — trigger condition`.
+
+From `GSD-WORKFLOW.md`:
+
+<Tip>
+  **When to read:** At the start of any planning or research phase.
+  
+  **When to write:** During discussion (seed from context), during planning (structural choices), during task execution (if an architectural choice was made), and during slice completion (catch-all for missed decisions).
+</Tip>
+
+### ROADMAP.md — The Milestone Plan
+
+See [Milestones, Slices & Tasks](/concepts/milestones-slices-tasks#milestones) for the full structure.
+
+Key features:
+- Checkboxes track completion (`[x]` = done)
+- Risk levels order slices (high-risk first)
+- Dependencies via `depends:[S01,S02]`
+- Boundary map specifies interfaces between slices
+
+### CONTEXT.md — User Decisions from Discuss Phase
+
+From the `context.md` template:
+
+```markdown
+# M001: Milestone Title — Context
+
+**Gathered:** 2026-03-07
+**Status:** Ready for planning
+
+## Implementation Decisions
+- Decision on gray area 1
+- Decision on gray area 2
+
+## Agent's Discretion
+- Areas where the user said "you decide"
+
+## Deferred Ideas
+- Ideas that came up but belong in other slices
+```
+
+This file captures **what** the user wants, not **how** to implement it. Gray areas are resolved before planning begins.
+
+### RESEARCH.md — Codebase and Tech Research
+
+From the `research.md` template:
+
+```markdown
+# S01: Slice Title — Research
+
+**Researched:** 2026-03-07
+**Domain:** Primary technology/problem domain
+**Confidence:** HIGH/MEDIUM/LOW
+
+## Summary
+2-3 paragraph executive summary. Primary recommendation.
+
+## Don't Hand-Roll
+| Problem | Don't Build | Use Instead | Why |
+|---------|-------------|-------------|-----|
+Problems that look simple but have existing solutions.
+
+## Common Pitfalls
+### Pitfall 1: Name
+**What goes wrong:** ...
+**Why it happens:** ...
+**How to avoid:** ...
+**Warning signs:** ...
+
+## Relevant Code
+Existing files, patterns, reusable assets, integration points.
+
+## Sources
+- Context7: /library/id — topics fetched (HIGH confidence)
+- WebSearch: finding — verified against docs (MEDIUM confidence)
+```
+
+<Warning>
+  The **Don't Hand-Roll** and **Common Pitfalls** sections prevent the most expensive mistakes.
+</Warning>
+
+### PLAN.md — Task Decomposition
+
+See [Milestones, Slices & Tasks](/concepts/milestones-slices-tasks#slices) for the full structure.
+
+Each task in the plan has:
+- Title and estimate
+- Why it exists
+- Files it touches
+- Verification command
+- Done-when condition
+
+### Task Summaries — The Memory System
+
+From the `task-summary.md` template:
+
+```markdown
+---
+id: T01
+parent: S01
+milestone: M001
+provides:
+  - What this task built (~5 items)
+requires:
+  - slice: S00
+    provides: What that prior slice built that this task used
+affects: [S02, S03]
+key_files:
+  - path/to/important/file.ts
+key_decisions:
+  - "Decision made: reasoning"
+patterns_established:
+  - "Pattern name and where it lives"
+drill_down_paths:
+  - .gsd/milestones/M001/slices/S01/tasks/T01-plan.md
+duration: 15min
+verification_result: pass
+completed_at: 2026-03-07T16:00:00Z
+---
+
+# T01: Task Title
+
+**Substantive one-liner — NOT "task complete" but what actually shipped**
+
+## What Happened
+
+Concise prose narrative of what was built, why key decisions were made,
+and what matters for future work.
+
+## Deviations
+What differed from the plan and why (or "None").
+
+## Files Created/Modified
+- `path/to/file.ts` — What it does
+```
+
+From `types.ts`:
+
+```typescript
+export interface SummaryFrontmatter {
+  id: string;
+  parent: string;
+  milestone: string;
+  provides: string[];
+  requires: SummaryRequires[];
+  affects: string[];
+  key_files: string[];
+  key_decisions: string[];
+  patterns_established: string[];
+  drill_down_paths: string[];
+  observability_surfaces: string[];
+  duration: string;
+  verification_result: string;
+  completed_at: string;
+  blocker_discovered: boolean;
+}
+```
+
+<Info>
+  The one-liner must be substantive: "JWT auth with refresh rotation using jose" not "Authentication implemented."
+</Info>
+
+### Hierarchical Compression
+
+From `GSD-WORKFLOW.md`:
+
+- **Task summary:** Written when a task completes. Includes frontmatter with `provides`, `requires`, `key_files`, `key_decisions`.
+- **Slice summary:** Written when all tasks in a slice complete. Compresses all task summaries. Includes `drill_down_paths` to each task summary.
+- **Milestone summary:** Updated each time a slice completes. Compresses all slice summaries.
+
+This hierarchy ensures downstream tasks get compressed context instead of loading hundreds of individual files.
+
+## Context Injection at Dispatch
+
+From `prompts/execute-task.md`:
+
+```markdown
+## UNIT: Execute Task T01 ("Core Type Definitions") — Slice S01 ("File I/O Foundation"), Milestone M001
+
+Start with the inlined context below. Treat the inlined task plan as the authoritative local execution contract for this unit.
+
+{{taskPlanInline}}
+
+{{slicePlanExcerpt}}
+
+## Backing Source Artifacts
+- Slice plan: `.gsd/milestones/M001/slices/S01/plan.md`
+- Task plan source: `.gsd/milestones/M001/slices/S01/tasks/T01-plan.md`
+- Prior task summaries in this slice:
+  (none — this is the first task)
+```
+
+The LLM never wastes tool calls on orientation — everything is pre-loaded.
+
+## UAT Scripts — Non-Blocking Human Verification
+
+From the `uat.md` template:
+
+```markdown
+# S01: Slice Title — UAT Script
+
+**Created:** 2026-03-07
+**Status:** Not Run
+
+## Scenario 1: Description
+
+**Setup:**
+1. Precondition 1
+2. Precondition 2
+
+**Steps:**
+1. Do this
+2. Do that
+3. Check result
+
+**Expected:**
+- Observable outcome 1
+- Observable outcome 2
+
+**Actual:**
+- (fill this in after running)
+
+**Result:** [ ] PASS / [ ] FAIL
+```
+
+GSD writes UAT scripts after slice completion but **does not wait for results**. The user tests whenever convenient. If UAT fails, fix tasks are created in the current or a new slice.
+
+## Continue.md — The Pause Point
+
+See [Workflow: Continue-Here Protocol](/concepts/workflow#continue-here-protocol) for the full structure.
+
+This ephemeral file captures:
+- Completed work
+- Remaining work
+- Decisions made (so next session doesn't re-debate)
+- The "vibe" — what's tricky, what to watch out for
+- The EXACT first thing to do when resuming
+
+## Observability in Summaries
+
+For non-trivial backend, integration, async, stateful, or UI work, summaries capture:
+
+```yaml
+observability_surfaces:
+  - "GET /api/status — returns { phase, lastError, retryCount }"
+  - "gsd status --json — structured progress and failure state"
+  - ".gsd/activity.log — timestamped phase transitions"
+```
+
+This helps future tasks (and future agents) inspect state when things fail.
+
+## File Size Targets
+
+From `GSD-WORKFLOW.md`:
+
+<Tip>
+  **Aim for:**
+  - ~5 provides per summary
+  - ~10 key_files per summary
+  - ~5 key_decisions per summary
+  - ~3 patterns_established per summary
+  
+  These are soft caps — exceed them when genuinely needed, but don't let summaries become essays.
+</Tip>
+
+## Reconciliation and Doctor
+
+If files disagree, GSD pauses and surfaces the issue:
+
+- Roadmap says slice done but task summaries missing → inconsistency
+- Task marked done but no summary → treat as incomplete
+- Continue file exists for completed task → delete continue file
+- State points to nonexistent slice/task → rebuild state from files
+
+Use `/gsd doctor` to validate `.gsd/` integrity and fix issues.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Git Strategy" href="/concepts/git-strategy" icon="git-alt">
+    Learn the branch-per-slice model
+  </Card>
+  <Card title="Workflow" href="/concepts/workflow" icon="arrow-progress">
+    See the phase-based workflow
+  </Card>
+  <Card title="Milestones, Slices & Tasks" href="/concepts/milestones-slices-tasks" icon="sitemap">
+    Understand the work hierarchy
+  </Card>
+</CardGroup>

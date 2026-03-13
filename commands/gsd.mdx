@@ -1,0 +1,289 @@
+---
+title: /gsd
+description: Main GSD command - smart entry point and workflow orchestration
+---
+
+The `/gsd` command is the primary entry point for GSD 2. It intelligently routes to the appropriate action based on current project state.
+
+## Syntax
+
+```bash
+/gsd [subcommand] [options]
+```
+
+## Behavior
+
+When invoked without arguments, `/gsd` enters **step mode** - executing one unit of work at a time with user confirmation between steps.
+
+### Smart Routing
+
+The command analyzes `.gsd/` state and decides the next action:
+
+1. **No active work** → Shows discuss flow to plan first milestone
+2. **Pre-planning phase** → Checks for CONTEXT.md, prompts for discussion if missing
+3. **Active milestone exists** → Starts step mode at current phase
+4. **Complete phase** → Shows completion summary
+
+## Subcommands
+
+### next
+
+Execute the next unit in step mode (same as bare `/gsd`):
+
+```bash
+/gsd next
+/gsd next --verbose
+```
+
+**Options:**
+- `--verbose` - Show detailed execution logs
+
+**Example:**
+
+```bash
+# Execute next unit with confirmation
+/gsd next
+
+# With verbose output
+/gsd next --verbose
+```
+
+### auto
+
+Start autonomous mode - continuously executes units until milestone complete:
+
+```bash
+/gsd auto
+/gsd auto --verbose
+```
+
+See [/gsd auto](/commands/gsd-auto) for details.
+
+### stop
+
+Stop auto or step mode:
+
+```bash
+/gsd stop
+```
+
+**Behavior:**
+- Clears unit timeout
+- Releases crash lock
+- Shows final cost summary
+- Resets metrics
+- Restores original model
+
+**Example output:**
+
+```
+Auto-mode stopped. Session: $0.234 · 12.5k tokens · 8 units
+```
+
+### status
+
+Show the dashboard overlay:
+
+```bash
+/gsd status
+```
+
+See [/gsd status](/commands/gsd-status) for details.
+
+### queue
+
+View and manage the milestone queue:
+
+```bash
+/gsd queue
+```
+
+See [/gsd queue](/commands/gsd-queue) for details.
+
+### discuss
+
+Enter interactive planning mode:
+
+```bash
+/gsd discuss
+```
+
+See [/gsd discuss](/commands/gsd-discuss) for details.
+
+### prefs
+
+Manage GSD preferences:
+
+```bash
+/gsd prefs [global|project|status]
+```
+
+See [/gsd prefs](/commands/gsd-prefs) for details.
+
+### doctor
+
+Audit and fix state issues:
+
+```bash
+/gsd doctor [audit|fix|heal] [scope]
+```
+
+See [/gsd doctor](/commands/gsd-doctor) for details.
+
+### migrate
+
+Migrate from GSD 1.0:
+
+```bash
+/gsd migrate <path>
+```
+
+See [/gsd migrate](/commands/gsd-migrate) for details.
+
+### remote
+
+Connect to remote collaboration platforms:
+
+```bash
+/gsd remote [slack|discord|status|disconnect]
+```
+
+Configure remote question handling via Slack or Discord integration. This allows the agent to ask you questions via your preferred messaging platform when human input is needed.
+
+## Source Implementation
+
+The command handler is implemented in `commands.ts:105`:
+
+```typescript
+async handler(args: string, ctx: ExtensionCommandContext) {
+  const trimmed = (typeof args === "string" ? args : "").trim();
+
+  if (trimmed === "status") {
+    await handleStatus(ctx);
+    return;
+  }
+
+  if (trimmed === "prefs" || trimmed.startsWith("prefs ")) {
+    await handlePrefs(trimmed.replace(/^prefs\s*/, "").trim(), ctx);
+    return;
+  }
+
+  // ... other subcommands ...
+
+  if (trimmed === "") {
+    // Bare /gsd defaults to step mode
+    await startAuto(ctx, pi, process.cwd(), false, { step: true });
+    return;
+  }
+}
+```
+
+## Autocomplete
+
+The command provides intelligent autocomplete for subcommands:
+
+```typescript
+getArgumentCompletions: (prefix: string) => {
+  const subcommands = ["next", "auto", "stop", "status", 
+                       "queue", "discuss", "prefs", 
+                       "doctor", "migrate", "remote"];
+  // ... filtering logic ...
+}
+```
+
+**Available completions:**
+- Subcommand names
+- Flags (e.g., `--verbose` for auto/next)
+- Scopes for doctor (e.g., `M001`, `M001/S02`)
+- Preference types for prefs (global, project, status)
+
+## State Machine Integration
+
+The `/gsd` command integrates with the core state machine:
+
+1. **Reads state** via `deriveState(basePath)`
+2. **Determines phase** (pre-planning, planning, executing, etc.)
+3. **Routes to handler** based on phase and command
+4. **Updates state files** after execution
+
+See [State Machine](/advanced/state-management) for the full execution model.
+
+## Typical Workflows
+
+### Starting a New Project
+
+```bash
+# First invocation shows discuss flow
+/gsd
+
+# After planning, start execution
+/gsd auto
+```
+
+### Resuming Work
+
+```bash
+# Check current state
+/gsd status
+
+# Continue from where you left off
+/gsd
+```
+
+### Pausing and Resuming
+
+```bash
+# Start auto mode
+/gsd auto
+
+# Press Escape to pause
+# Do manual work...
+
+# Resume
+/gsd auto
+```
+
+## Error Handling
+
+The command validates state before execution:
+
+```typescript
+if (state.phase === "blocked") {
+  await stopAuto(ctx, pi);
+  ctx.ui.notify(`Blocked: ${state.blockers.join(", ")}. Fix and run /gsd auto.`, "warning");
+  return;
+}
+```
+
+**Common errors:**
+- **No git repository** - GSD requires git for branch-per-slice workflow
+- **Missing CONTEXT.md** - Pre-planning phase needs context before roadmap
+- **Blocked phase** - Active blockers prevent auto-mode
+
+## Best Practices
+
+<Tip>
+**Start with step mode** when learning GSD. Use `/gsd` (step mode) to see each unit execute individually before switching to `/gsd auto`.
+</Tip>
+
+<Warning>
+**Don't mix manual edits with auto mode.** Pause auto-mode (`Escape`) before editing `.gsd/` files manually, then resume.
+</Warning>
+
+## Related Commands
+
+- [/gsd auto](/commands/gsd-auto) - Autonomous execution
+- [/gsd status](/commands/gsd-status) - View progress
+- [/gsd discuss](/commands/gsd-discuss) - Interactive planning
+- [/gsd doctor](/commands/gsd-doctor) - Audit state consistency
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Auto Mode" icon="play" href="/commands/gsd-auto">
+    Learn about autonomous execution
+  </Card>
+  <Card title="Workflow Guide" icon="book" href="/concepts/workflow">
+    Understand the full workflow
+  </Card>
+</CardGroup>

@@ -1,0 +1,461 @@
+---
+title: MCPorter
+description: Connect to MCP servers for external tool integrations
+---
+
+The MCPorter extension provides lazy integration with Model Context Protocol (MCP) servers. It discovers servers configured on your system (Claude Desktop, Cursor, VS Code, etc.) and exposes their tools on-demand, keeping token usage near-zero until the agent actually needs an MCP tool.
+
+## Overview
+
+MCPorter enables:
+
+- **Lazy discovery**: MCP tools aren't loaded until requested
+- **System-wide servers**: Uses existing MCP config from Claude Desktop, Cursor, VS Code
+- **On-demand execution**: Call any MCP tool via `mcp_call`
+- **Zero configuration**: No setup if you already use MCP servers elsewhere
+
+## Architecture
+
+MCPorter uses the `mcporter` CLI to:
+
+1. Discover MCP servers from system config files
+2. List available servers and their tools
+3. Invoke tools with JSON arguments
+4. Return results to the agent
+
+All MCP communication happens through `mcporter`, not direct server spawning.
+
+## Installation
+
+MCPorter requires the `mcporter` CLI:
+
+```bash
+npm install -g mcporter
+```
+
+Verify installation:
+
+```bash
+mcporter --version
+```
+
+GSD 2 will notify on startup if `mcporter` is not found.
+
+## Tools
+
+### 1. mcp_servers
+
+List all available MCP servers and their tools.
+
+```typescript
+mcp_servers({ refresh: false })
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `refresh` | boolean | Force refresh (default: use cache) |
+
+**Returns:**
+
+```json
+{
+  "serverCount": 5,
+  "servers": [
+    {
+      "name": "railway",
+      "status": "ok",
+      "tools": [
+        { "name": "railway_list_projects", "description": "List Railway projects" },
+        { "name": "railway_get_deployment", "description": "Get deployment info" }
+      ]
+    },
+    {
+      "name": "linear",
+      "status": "auth",
+      "tools": [
+        { "name": "linear_create_issue", "description": "Create Linear issue" }
+      ]
+    }
+  ]
+}
+```
+
+**Status Codes:**
+
+- `ok`: Server is ready
+- `auth`: Needs authentication
+- `offline`: Server not running
+- `error`: Configuration error
+
+### 2. mcp_discover
+
+Get full tool schemas for a specific server.
+
+```typescript
+mcp_discover({ server: "railway" })
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `server` | string | Server name from `mcp_servers` output |
+
+**Returns:**
+
+```markdown
+railway — 12 tools:
+
+## railway_list_projects
+List all Railway projects
+```json
+{
+  "type": "object",
+  "properties": {
+    "teamId": {
+      "type": "string",
+      "description": "Optional team ID filter"
+    }
+  }
+}
+```
+
+## railway_get_deployment
+Get deployment information
+```json
+{
+  "type": "object",
+  "properties": {
+    "deploymentId": {
+      "type": "string",
+      "description": "Deployment ID"
+    }
+  },
+  "required": ["deploymentId"]
+}
+```
+
+Call with: `mcp_call(server="railway", tool="<tool_name>", args={...})`
+
+### 3. mcp_call
+
+Call a tool on an MCP server.
+
+```typescript
+mcp_call({
+  server: "railway",
+  tool: "railway_list_projects",
+  args: { teamId: "team-abc123" }
+})
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `server` | string | Server name (e.g., `railway`) |
+| `tool` | string | Tool name (e.g., `railway_list_projects`) |
+| `args` | object | Tool arguments as key-value pairs |
+
+**Returns:**
+
+```json
+{
+  "server": "railway",
+  "tool": "railway_list_projects",
+  "charCount": 2500,
+  "truncated": false,
+  "content": "[{\"id\": \"proj-123\", \"name\": \"my-api\", ...}]"
+}
+```
+
+## Workflow
+
+Typical MCP usage follows three steps:
+
+### 1. List Servers
+
+```typescript
+const servers = await mcp_servers()
+// See what's available: railway, linear, twitter-mcp, etc.
+```
+
+### 2. Discover Tools
+
+```typescript
+const tools = await mcp_discover({ server: "railway" })
+// See tool schemas and required arguments
+```
+
+### 3. Call Tool
+
+```typescript
+const result = await mcp_call({
+  server: "railway",
+  tool: "railway_list_projects",
+  args: {}
+})
+// Get tool output
+```
+
+## Example: Railway Deployment
+
+```typescript
+// 1. Check available servers
+const servers = await mcp_servers()
+// Found: railway (status: ok)
+
+// 2. Discover Railway tools
+const schema = await mcp_discover({ server: "railway" })
+// Tools: railway_list_projects, railway_get_deployment, railway_create_service, ...
+
+// 3. List projects
+const projects = await mcp_call({
+  server: "railway",
+  tool: "railway_list_projects",
+  args: {}
+})
+// Returns: [{ id: "proj-123", name: "my-api" }, ...]
+
+// 4. Get deployment status
+const deployment = await mcp_call({
+  server: "railway",
+  tool: "railway_get_deployment",
+  args: { deploymentId: "deploy-abc" }
+})
+// Returns: { status: "SUCCESS", url: "https://my-api.up.railway.app" }
+```
+
+## Server Discovery
+
+MCPorter discovers servers from:
+
+### Claude Desktop
+
+```json
+// ~/Library/Application Support/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "railway": {
+      "command": "npx",
+      "args": ["-y", "@railwayapp/mcp"]
+    }
+  }
+}
+```
+
+### Cursor
+
+```json
+// ~/Library/Application Support/Cursor/User/globalStorage/mcp.json
+{
+  "mcpServers": {
+    "linear": {
+      "command": "npx",
+      "args": ["-y", "@linear/mcp"]
+    }
+  }
+}
+```
+
+### VS Code
+
+```json
+// ~/Library/Application Support/Code/User/globalStorage/mcp.json
+{
+  "mcpServers": { /* ... */ }
+}
+```
+
+### MCPorter Config
+
+```json
+// ~/.mcporter/config.json
+{
+  "servers": { /* ... */ }
+}
+```
+
+## Popular MCP Servers
+
+| Server | Description | Package |
+|--------|-------------|----------|
+| Railway | Deploy and manage Railway projects | `@railwayapp/mcp` |
+| Linear | Issue tracking and project management | `@linear/mcp` |
+| Twitter | Post tweets, search, manage timeline | `@modelcontextprotocol/server-twitter` |
+| GitHub | Repository management, PR creation | `@modelcontextprotocol/server-github` |
+| Slack | Channel management, message posting | `@modelcontextprotocol/server-slack` |
+| Filesystem | Local file operations | `@modelcontextprotocol/server-filesystem` |
+
+Full catalog: https://github.com/modelcontextprotocol/servers
+
+## Authentication
+
+Some servers require authentication:
+
+### Status: auth
+
+When `mcp_servers` shows `status: "auth"`:
+
+1. Server needs API keys or OAuth
+2. Configure via server's documentation
+3. Usually set as environment variables
+
+Example (Linear):
+
+```bash
+export LINEAR_API_KEY=your_key_here
+```
+
+Then restart the session:
+
+```bash
+/restart
+```
+
+## Caching
+
+MCPorter caches:
+
+- **Server list**: Cached after first `mcp_servers` call
+- **Tool schemas**: Cached after first `mcp_discover` call
+- **Tool results**: NOT cached (fresh data every call)
+
+Force refresh:
+
+```typescript
+mcp_servers({ refresh: true })
+```
+
+## Error Handling
+
+### Server Not Found
+
+```
+Failed to discover tools for "missing-server": Server not found
+```
+
+**Solution:** Check server name spelling, run `mcp_servers()` to see available servers.
+
+### Authentication Required
+
+```
+MCP call failed: railway.railway_list_projects
+Error: 401 Unauthorized
+```
+
+**Solution:** Set required environment variables (see server docs), restart session.
+
+### Tool Schema Mismatch
+
+```
+MCP call failed: Missing required parameter "projectId"
+```
+
+**Solution:** Run `mcp_discover({ server: "railway" })` to see required arguments.
+
+## Troubleshooting
+
+### MCPorter Not Installed
+
+```
+MCPorter not found. Install with: npm i -g mcporter
+```
+
+**Solution:**
+
+```bash
+npm install -g mcporter
+```
+
+### No Servers Found
+
+```
+No MCP servers found.
+```
+
+**Cause:** No MCP server configs on the system.
+
+**Solution:**
+
+1. Install an MCP server (e.g., `npm i -g @railwayapp/mcp`)
+2. Configure it in Claude Desktop or `~/.mcporter/config.json`
+3. Refresh: `mcp_servers({ refresh: true })`
+
+### Server Shows Error Status
+
+```
+✗ railway — error (Configuration error: command not found)
+```
+
+**Solutions:**
+
+1. Verify server package is installed globally
+2. Check config file for typos
+3. Ensure `command` path is correct (absolute or in PATH)
+
+## Best Practices
+
+### 1. Discover Before Calling
+
+<CodeGroup>
+```typescript
+// Good: Check schema first
+await mcp_discover({ server: "railway" })
+await mcp_call({
+  server: "railway",
+  tool: "railway_get_deployment",
+  args: { deploymentId: "deploy-abc" }  // Know required args
+})
+```
+
+```typescript
+// Risky: Guess arguments
+await mcp_call({
+  server: "railway",
+  tool: "railway_get_deployment",
+  args: { id: "deploy-abc" }  // Wrong parameter name!
+})
+```
+</CodeGroup>
+
+### 2. Cache Server List
+
+```typescript
+// First call: fetch from system
+const servers = await mcp_servers()
+
+// Subsequent calls: use cache
+const tools = await mcp_discover({ server: "railway" })
+const result = await mcp_call({ server: "railway", tool: "..." })
+
+// Only refresh when needed
+const fresh = await mcp_servers({ refresh: true })
+```
+
+### 3. Handle Auth Status
+
+```typescript
+const servers = await mcp_servers()
+
+for (const server of servers) {
+  if (server.status === "auth") {
+    console.log(`${server.name} needs authentication`)
+    // Guide user to set API keys
+  }
+}
+```
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="Search the Web" icon="magnifying-glass" href="/extensions/search-web">
+    For web search without MCP servers
+  </Card>
+  
+  <Card title="Context7" icon="book" href="/extensions/context7">
+    For library documentation without MCP
+  </Card>
+</CardGroup>

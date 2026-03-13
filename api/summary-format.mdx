@@ -1,0 +1,511 @@
+---
+title: "SUMMARY Format"
+description: "Task and slice summary format with structured frontmatter"
+---
+
+## Overview
+
+SUMMARY files (e.g. `T01-SUMMARY.md`, `S01-SUMMARY.md`) document completed work with structured metadata and narrative description.
+
+Summaries enable:
+- **Handoff context** for subsequent tasks
+- **Slice boundary tracking** via provides/requires/affects
+- **Blocker detection** via `blocker_discovered` flag
+- **Cost tracking** via duration field
+
+## Structure
+
+```yaml
+---
+id: T02
+parent: S02
+milestone: M001
+provides:
+  - POST /checkout endpoint
+  - Stripe session creation
+requires:
+  - slice: S01
+    provides: Stripe client initialization
+affects:
+  - src/routes/checkout.ts
+  - src/services/stripe.ts
+key_files:
+  - src/routes/checkout.ts
+  - src/services/stripe.ts
+key_decisions:
+  - Use Stripe checkout sessions instead of payment intents
+  - Store session IDs in database for webhook correlation
+patterns_established:
+  - Service layer pattern for Stripe operations
+  - Error handling with typed exceptions
+drill_down_paths:
+  - Review session creation in stripe.ts:45
+  - Check error handling in checkout.ts:120
+observability_surfaces:
+  - POST /checkout returns 200 with session URL
+  - Stripe dashboard shows created sessions
+duration: 45m
+verification_result: passed
+completed_at: 2026-03-13T14:30:00Z
+blocker_discovered: false
+---
+
+# T02: Checkout Endpoint
+
+**POST /checkout creates Stripe session and returns redirect URL**
+
+## What Happened
+
+Implemented checkout endpoint that:
+1. Validates user authentication
+2. Creates Stripe checkout session with subscription plan
+3. Stores session ID in database for webhook correlation
+4. Returns session URL to client
+
+Used Stripe checkout sessions (not payment intents) because sessions 
+handle the entire payment flow including success/cancel redirects.
+
+Implemented service layer pattern for Stripe operations to keep 
+route handlers thin and testable.
+
+## Deviations
+
+Originally planned to use payment intents, but checkout sessions are 
+better suited for subscription flow. This required updating the 
+Stripe client initialization to include `checkout` namespace.
+
+Added database schema for storing session IDs — not in original plan 
+but necessary for webhook correlation.
+
+## Files Created/Modified
+
+- `src/routes/checkout.ts` — POST handler with validation and session creation
+- `src/services/stripe.ts` — createCheckoutSession() function
+- `src/models/checkout-session.ts` — database model for session tracking
+- `migrations/004_checkout_sessions.sql` — new table for session IDs
+- `tests/checkout.test.ts` — integration tests with Stripe test mode
+```
+
+## Frontmatter Fields
+
+### Identity
+
+<ParamField path="id" type="string" required>
+  Task or slice ID (e.g. "T02", "S01")
+</ParamField>
+
+<ParamField path="parent" type="string" required>
+  Parent slice ID (for tasks) or milestone ID (for slices)
+</ParamField>
+
+<ParamField path="milestone" type="string" required>
+  Milestone ID (e.g. "M001")
+</ParamField>
+
+### Boundaries
+
+<ParamField path="provides" type="array" required>
+  List of capabilities, APIs, or artifacts this unit produces
+</ParamField>
+
+<ParamField path="requires" type="array">
+  List of dependencies from other slices, each with `slice` and `provides` fields
+</ParamField>
+
+<ParamField path="affects" type="array">
+  List of files or systems modified by this unit
+</ParamField>
+
+#### Requires Format
+
+Each requires entry is an object:
+
+```yaml
+requires:
+  - slice: S01
+    provides: Stripe client initialization
+  - slice: S00
+    provides: User authentication middleware
+```
+
+<ParamField path="requires[].slice" type="string" required>
+  Source slice ID
+</ParamField>
+
+<ParamField path="requires[].provides" type="string" required>
+  What capability from that slice is consumed
+</ParamField>
+
+### Context
+
+<ParamField path="key_files" type="array" required>
+  Primary files modified or created
+</ParamField>
+
+<ParamField path="key_decisions" type="array" required>
+  Important decisions made during implementation
+</ParamField>
+
+<ParamField path="patterns_established" type="array">
+  Reusable patterns or conventions introduced
+</ParamField>
+
+<ParamField path="drill_down_paths" type="array">
+  Pointers to specific code locations for future reference
+</ParamField>
+
+<ParamField path="observability_surfaces" type="array">
+  Ways to verify this unit is working (endpoints, logs, dashboards)
+</ParamField>
+
+### Tracking
+
+<ParamField path="duration" type="string" required>
+  Actual time spent (e.g. "45m", "1h30m", "2h")
+</ParamField>
+
+<ParamField path="verification_result" type="string" required>
+  Result of verification: `passed`, `failed`, `skipped`, `untested`
+</ParamField>
+
+<ParamField path="completed_at" type="string" required>
+  ISO 8601 timestamp of completion
+</ParamField>
+
+<ParamField path="blocker_discovered" type="boolean" required>
+  Whether a blocker was discovered that requires replanning
+</ParamField>
+
+## Body Sections
+
+### Title and One-Liner
+
+```markdown
+# T02: Checkout Endpoint
+
+**POST /checkout creates Stripe session and returns redirect URL**
+```
+
+The one-liner (bold text immediately after H1) is a brief summary.
+
+### What Happened
+
+<ParamField path="What Happened" type="section" required>
+  Narrative description of what was implemented and why
+</ParamField>
+
+This section should:
+- Describe what was built
+- Explain key implementation choices
+- Note any research or discovery that informed the work
+
+### Deviations
+
+<ParamField path="Deviations" type="section">
+  Differences between plan and actual implementation
+</ParamField>
+
+Include:
+- Changes to planned approach
+- Additional work not in original task
+- Scope cuts or deferrals
+- Reasons for each deviation
+
+### Files Created/Modified
+
+<ParamField path="Files Created/Modified" type="section" required>
+  Bulleted list of changed files with descriptions
+</ParamField>
+
+Format:
+```markdown
+- `path/to/file.ts` — Brief description of changes
+```
+
+## TypeScript Interface
+
+```typescript
+export interface Summary {
+  frontmatter: SummaryFrontmatter;
+  title: string;
+  oneLiner: string;
+  whatHappened: string;
+  deviations: string;
+  filesModified: FileModified[];
+}
+
+export interface SummaryFrontmatter {
+  id: string;
+  parent: string;
+  milestone: string;
+  provides: string[];
+  requires: SummaryRequires[];
+  affects: string[];
+  key_files: string[];
+  key_decisions: string[];
+  patterns_established: string[];
+  drill_down_paths: string[];
+  observability_surfaces: string[];
+  duration: string;
+  verification_result: string;
+  completed_at: string;
+  blocker_discovered: boolean;
+}
+
+export interface SummaryRequires {
+  slice: string;
+  provides: string;
+}
+
+export interface FileModified {
+  path: string;
+  description: string;
+}
+```
+
+## Parsing
+
+GSD parses SUMMARY files using the `parseSummary()` function:
+
+1. **Split frontmatter**: Delimited by `---` markers
+2. **Parse YAML**: Using custom parser that handles arrays and nested objects
+3. **Extract title**: First H1 heading
+4. **Extract one-liner**: Bold text immediately after H1
+5. **Extract sections**: "What Happened", "Deviations", "Files Created/Modified"
+
+### Frontmatter Parsing
+
+```typescript
+const [fmLines, body] = splitFrontmatter(content);
+const fm = fmLines ? parseFrontmatterMap(fmLines) : {};
+```
+
+The parser handles:
+- Simple scalars: `key: value`
+- Arrays: `key:` followed by `  - item` lines
+- Nested objects: Array items with indented key-value pairs
+
+### Files Parsing
+
+```typescript
+const fileMatch = trimmed.match(/^`([^`]+)`\s*[—–-]\s*(.+)/);
+if (fileMatch) {
+  filesModified.push({ 
+    path: fileMatch[1], 
+    description: fileMatch[2].trim() 
+  });
+}
+```
+
+Extracts file path from backticks and description after em-dash.
+
+## Example: Slice SUMMARY
+
+```yaml
+---
+id: S02
+parent: M001
+milestone: M001
+provides:
+  - POST /checkout endpoint with session creation
+  - GET /checkout/success handler
+  - GET /checkout/cancel handler
+  - Subscription database model
+requires:
+  - slice: S01
+    provides: Stripe client and configuration
+affects:
+  - src/routes/checkout.ts
+  - src/services/stripe.ts
+  - src/models/subscription.ts
+  - src/controllers/subscription.ts
+key_files:
+  - src/routes/checkout.ts
+  - src/services/stripe.ts
+  - migrations/003_subscriptions.sql
+key_decisions:
+  - Use Stripe checkout sessions for full payment flow
+  - Store session IDs for webhook correlation
+  - Soft delete subscriptions (never hard delete)
+patterns_established:
+  - Service layer for third-party integrations
+  - Migration naming: NNN_description.sql
+  - Controller pattern for business logic
+drill_down_paths:
+  - Session creation: stripe.ts:45-67
+  - Success handler: checkout.ts:120-145
+  - Subscription model: subscription.ts:12-45
+observability_surfaces:
+  - POST /checkout returns 200 with session URL
+  - GET /checkout/success creates subscription record
+  - Stripe dashboard shows sessions and subscriptions
+  - Database query: SELECT * FROM subscriptions
+duration: 3h45m
+verification_result: passed
+completed_at: 2026-03-13T17:15:00Z
+blocker_discovered: false
+---
+
+# S02: Checkout Flow
+
+**Users can complete Stripe checkout and create subscriptions**
+
+## What Happened
+
+Implemented full checkout flow from session creation through success 
+handling. This slice covers T01-T04 in the plan.
+
+Key implementation details:
+
+1. **Database schema**: Created subscriptions table with user_id, 
+   stripe_subscription_id, status, and timestamps. Used soft deletes.
+
+2. **Session creation**: POST /checkout validates user, creates Stripe 
+   checkout session with subscription plan, stores session ID, returns URL.
+
+3. **Success handler**: GET /checkout/success retrieves session from 
+   Stripe, creates subscription record, redirects to dashboard.
+
+4. **Cancel handler**: GET /checkout/cancel shows retry UI with same 
+   pricing information.
+
+Used service layer pattern throughout to separate business logic from 
+route handlers. This makes testing easier and keeps code organized.
+
+## Deviations
+
+Original plan called for payment intents, but checkout sessions are 
+better for subscriptions. This required:
+- Different Stripe API calls
+- Session ID storage (not in original schema)
+- Success URL includes session_id query param
+
+Added soft delete to subscription model (not in plan) because hard 
+deletes lose payment history.
+
+Skipped "retry" UI on cancel page — just shows link back to pricing. 
+Full retry flow (with saved cart state) deferred to S06.
+
+## Files Created/Modified
+
+- `src/routes/checkout.ts` — Three endpoints: POST /checkout, GET /success, GET /cancel
+- `src/services/stripe.ts` — createCheckoutSession() and retrieveSession()
+- `src/models/subscription.ts` — Subscription model with soft delete
+- `src/controllers/subscription.ts` — Business logic for subscription creation
+- `migrations/003_subscriptions.sql` — Subscriptions table
+- `src/views/checkout-success.tsx` — Success page component
+- `src/views/checkout-cancel.tsx` — Cancel page component
+- `tests/checkout.test.ts` — Integration tests with Stripe test mode
+```
+
+## Blocker Detection
+
+The `blocker_discovered` flag triggers replanning when set to `true`.
+
+<Warning>
+  Setting `blocker_discovered: true` pauses execution and triggers slice replan.
+</Warning>
+
+Use this when:
+- A task reveals incorrect assumptions in the plan
+- A dependency is missing or broken
+- Technical approach is not viable
+- Scope is significantly larger than estimated
+
+Do NOT use for:
+- Minor deviations (document in "Deviations" section)
+- Bugs that can be fixed within the task
+- Scope creep that can be deferred
+
+### Blocker Example
+
+```yaml
+---
+blocker_discovered: true
+---
+
+# T03: Webhook Handler
+
+**Stripe webhook signature verification and event routing**
+
+## What Happened
+
+Started implementing webhook handler but discovered that Stripe 
+webhook signatures require HTTPS in production. Our current 
+deployment setup uses HTTP only.
+
+This is a blocker because:
+1. Webhook signature verification will fail in production
+2. Cannot proceed with webhook implementation until deployment is HTTPS
+3. HTTPS setup was not in scope for this milestone
+
+## Deviations
+
+Cannot complete this task as planned. Need to either:
+1. Add HTTPS to deployment (S00 or new slice)
+2. Use Stripe CLI webhook forwarding (dev only)
+3. Defer webhooks to M002
+```
+
+When a blocker is discovered, GSD:
+1. Marks task as incomplete
+2. Writes SUMMARY with `blocker_discovered: true`
+3. Transitions to `replanning-slice` phase
+4. Generates REPLAN.md with updated tasks
+5. Resumes execution with new plan
+
+## Editing Guidelines
+
+<Note>
+  SUMMARY files are written once and should not be edited after creation.
+</Note>
+
+### When to Write
+
+- **Task SUMMARY**: Immediately after task completion and verification
+- **Slice SUMMARY**: After all tasks complete and UAT passes
+
+### What to Include
+
+**Do include:**
+- All files touched (even if just imports)
+- Key decisions that affect future work
+- Deviations from plan with rationale
+- Specific code locations for complex logic
+
+**Don't include:**
+- Full code listings (use drill_down_paths instead)
+- Trivial changes (formatting, typo fixes)
+- External dependencies (unless new)
+
+### Provides vs Affects
+
+- **provides**: Capabilities or APIs for other slices to consume
+- **affects**: Files or systems that were modified
+
+Example:
+```yaml
+provides:
+  - POST /checkout endpoint
+  - createCheckoutSession() function
+affects:
+  - src/routes/checkout.ts
+  - src/services/stripe.ts
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="PLAN Format" icon="list-check" href="/api/plan-format">
+    Slice plan with tasks and must-haves
+  </Card>
+  <Card title="State Files" icon="database" href="/api/state-files">
+    CONTINUE.md for interrupted work
+  </Card>
+  <Card title="ROADMAP Format" icon="map" href="/api/roadmap-format">
+    Milestone roadmap with slices
+  </Card>
+  <Card title=".gsd/ Directory" icon="folder-tree" href="/api/gsd-directory">
+    Complete directory structure
+  </Card>
+</CardGroup>

@@ -1,0 +1,338 @@
+---
+title: Milestones, Slices & Tasks
+description: The three-level hierarchy that structures all work in GSD
+---
+
+## The Hierarchy
+
+```
+Milestone  →  a shippable version (4-10 slices)
+  Slice    →  one demoable vertical capability (1-7 tasks)
+    Task   →  one context-window-sized unit of work
+```
+
+<Warning>
+  **The iron rule:** A task MUST fit in one context window. If it can't, it's two tasks.
+</Warning>
+
+## Milestones
+
+A milestone is a **shippable version** of your project. It has:
+
+- A **vision** — one paragraph describing what this milestone delivers
+- **Success criteria** — observable outcomes, not implementation tasks
+- **4-10 slices** — demoable vertical increments
+- A **boundary map** — what each slice produces and consumes
+
+From the `roadmap.md` template:
+
+```markdown
+# M001: Title of the Milestone
+
+**Vision:** One paragraph describing what this milestone delivers.
+
+**Success Criteria:**
+- Observable outcome 1
+- Observable outcome 2
+
+---
+
+## Slices
+
+- [ ] **S01: Slice Title** `risk:low` `depends:[]`
+  > After this: what the user can demo when this slice is done.
+
+- [ ] **S02: Another Slice** `risk:medium` `depends:[S01]`
+  > After this: demo sentence.
+
+- [x] **S03: Completed Slice** `risk:low` `depends:[S01]`
+  > After this: demo sentence.
+```
+
+### Parsing Rules
+
+From `types.ts`:
+
+```typescript
+export interface RoadmapSliceEntry {
+  id: string;          // e.g. "S01"
+  title: string;       // e.g. "Types + File I/O + Git Operations"
+  risk: RiskLevel;     // 'low' | 'medium' | 'high'
+  depends: string[];   // e.g. ["S01", "S02"]
+  done: boolean;       // parsed from checkbox: [x] = done, [ ] = not done
+  demo: string;        // the "After this:" sentence
+}
+```
+
+- `- [x]` = done
+- `- [ ]` = not done
+- `risk:` and `depends:[]` are inline metadata
+- `depends:[]` lists slice IDs this slice requires to be complete first
+
+### Boundary Map
+
+After the slices section, include a `## Boundary Map` that shows what each slice produces and consumes:
+
+```markdown
+## Boundary Map
+
+### S01 → S02
+Produces:
+  types.ts → User, Session, AuthToken (interfaces)
+  auth.ts  → generateToken(), verifyToken(), refreshToken()
+
+Consumes: nothing (leaf node)
+
+### S02 → S03
+Produces:
+  api/auth/login.ts  → POST handler
+  api/auth/signup.ts → POST handler
+  middleware.ts      → authMiddleware()
+
+Consumes from S01:
+  auth.ts → generateToken(), verifyToken()
+```
+
+<Info>
+  The boundary map is a **planning artifact** — not runnable code. It:
+  - Forces upfront thinking about slice boundaries before implementation
+  - Gives downstream slices a concrete target to code against
+  - Enables deterministic verification that slices actually connect
+  - Gets updated during slice planning if new interfaces emerge
+</Info>
+
+From `types.ts`:
+
+```typescript
+export interface BoundaryMapEntry {
+  fromSlice: string;   // e.g. "S01"
+  toSlice: string;     // e.g. "S02" or "terminal"
+  produces: string;    // raw text block of what this slice produces
+  consumes: string;    // raw text block of what it consumes (or "nothing")
+}
+```
+
+## Slices
+
+A slice is a **demoable vertical capability**. Not a layer, not a foundation — something the user can actually see working.
+
+From `GSD-WORKFLOW.md`:
+
+<Warning>
+  **Planning quality rules:**
+  - Every slice must ship real, working, demoable code — no research-only or foundation-only slices
+  - Early slices should prove the hardest thing works by building through the uncertain path
+  - Each slice should establish a stable surface that downstream slices can depend on
+  - Demo lines should describe concrete, verifiable evidence — not vague claims
+</Warning>
+
+### Slice Plan Structure
+
+From the `plan.md` template:
+
+```markdown
+# S01: Slice Title
+
+**Goal:** What this slice achieves.
+**Demo:** What the user can see/do when this is done.
+
+## Must-Haves
+
+- Observable outcome 1 (used for verification)
+- Observable outcome 2
+
+## Verification
+
+- npm test -- --grep "auth flow"
+- bash scripts/verify-s01.sh
+
+## Tasks
+
+- [ ] **T01: Task Title** `est:30m`
+  - Why: why this task exists
+  - Files: `path/to/file.ts`, `path/to/another.ts`
+  - Do: specific implementation steps and constraints
+  - Verify: test command or runtime check
+  - Done when: measurable acceptance condition
+```
+
+From `types.ts`:
+
+```typescript
+export interface SlicePlan {
+  id: string;          // e.g. "S01"
+  title: string;       // from the H1
+  goal: string;
+  demo: string;
+  mustHaves: string[]; // top-level must-have bullet points
+  tasks: TaskPlanEntry[];
+  filesLikelyTouched: string[];
+}
+```
+
+## Tasks
+
+A task is **one context-window-sized unit of work**. It must fit in a single agent session.
+
+From `types.ts`:
+
+```typescript
+export interface TaskPlanEntry {
+  id: string;          // e.g. "T01"
+  title: string;       // e.g. "Core Type Definitions"
+  description: string;
+  done: boolean;
+  estimate: string;    // e.g. "30m", "2h" — informational only
+  files?: string[];    // e.g. ["types.ts", "files.ts"]
+  verify?: string;     // e.g. "run tests"
+}
+```
+
+### Task Plan Structure
+
+From the `task-plan.md` template:
+
+```markdown
+---
+estimated_steps: 5
+estimated_files: 3
+---
+
+# T01: Task Title
+
+**Slice:** S01 — Slice Title
+**Milestone:** M001
+
+## Description
+
+What this task accomplishes in one sentence.
+
+## Steps
+
+1. First thing to do
+2. Second thing to do
+3. Third thing to do
+
+## Must-Haves
+
+- [ ] Observable behavior that must be true
+- [ ] File that must exist with real implementation
+
+## Verification
+
+- How to verify this task is actually done
+- Command to run OR behavior to check
+
+## Inputs
+
+- `file.ts` — what this task needs from prior work
+
+## Expected Output
+
+- `new-file.ts` — what this task should produce or modify
+```
+
+### Must-Haves: The Key to Verification
+
+From `GSD-WORKFLOW.md`:
+
+<Tip>
+  **Must-haves are what make verification mechanically checkable.**
+  
+  - **Truths** are checked by running commands or reading output
+  - **Artifacts** are checked by confirming files exist with real content
+  - **Key links** are checked by confirming imports/references actually connect the pieces
+</Tip>
+
+```markdown
+### Truths
+Observable behaviors that must be true when this task is done:
+- "User can sign up with email and password"
+- "Login returns a JWT token"
+
+### Artifacts
+Files that must exist with real implementation (not stubs):
+- `src/lib/auth.ts` — JWT helpers (min 30 lines, exports: generateToken, verifyToken)
+- `src/app/api/auth/login/route.ts` — Login endpoint (exports: POST)
+
+### Key Links
+Critical wiring between artifacts:
+- `login/route.ts` → `auth.ts` via import of `generateToken`
+- `middleware.ts` → `auth.ts` via import of `verifyToken`
+```
+
+## Dependencies Between Slices
+
+Slices can depend on each other using the `depends:[]` metadata:
+
+```markdown
+- [ ] **S01: Data Model** `risk:low` `depends:[]`
+  > After this: types and interfaces are defined
+
+- [ ] **S02: API Endpoints** `risk:medium` `depends:[S01]`
+  > After this: API accepts requests and returns typed responses
+
+- [ ] **S03: UI Integration** `risk:low` `depends:[S01,S02]`
+  > After this: UI displays live data from the API
+```
+
+When planning or executing a task, GSD loads summaries from dependency slices to understand what's available.
+
+From `GSD-WORKFLOW.md`:
+
+```markdown
+## Summary Injection for Downstream Tasks
+
+When planning or executing a task, load relevant prior context:
+
+1. Check the current slice's `depends:[]` in `roadmap.md`.
+2. Load summaries from those dependency slices.
+3. Start with the **highest available level** — milestone `summary.md` first.
+4. Only drill down to slice/task summaries if you need specific detail.
+5. Stay within **~2500 tokens** of total injected summary context.
+```
+
+## Ordering by Risk
+
+From the `roadmap.md` template:
+
+<Info>
+  Order slices by risk (highest first). Early slices should prove the hardest thing works by building through the uncertain path.
+</Info>
+
+```markdown
+- [ ] **S01: OAuth Integration** `risk:high` `depends:[]`
+  > After this: user can authenticate with GitHub
+
+- [ ] **S02: Database Schema** `risk:medium` `depends:[S01]`
+  > After this: user sessions persist across restarts
+
+- [ ] **S03: Admin Dashboard** `risk:low` `depends:[S01,S02]`
+  > After this: admin can view active sessions
+```
+
+## Integration Closure
+
+For milestones that cross multiple runtime boundaries (daemon + API + UI, bot + subprocess + service manager), include an explicit final integration slice.
+
+From `GSD-WORKFLOW.md`:
+
+<Warning>
+  If a slice doesn't produce something testable end-to-end, it's probably a layer — restructure it.
+  
+  Contract or fixture proof does not replace final assembly proof when the user-visible outcome depends on live wiring.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Context Engineering" href="/concepts/context-engineering" icon="file-lines">
+    See what files GSD manages for you
+  </Card>
+  <Card title="Git Strategy" href="/concepts/git-strategy" icon="git-alt">
+    Learn the branch-per-slice model
+  </Card>
+  <Card title="Workflow" href="/concepts/workflow" icon="arrow-progress">
+    See the phase-based workflow
+  </Card>
+</CardGroup>

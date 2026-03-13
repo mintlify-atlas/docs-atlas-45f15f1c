@@ -1,0 +1,482 @@
+---
+title: Auto Mode
+description: Walk away and come back to built software with clean git history
+---
+
+Auto mode is GSD's fully autonomous execution mode. Run it, walk away, come back to built software. No babysitting, no manual intervention.
+
+## The Core Promise
+
+One command:
+
+```bash
+/gsd auto
+```
+
+GSD researches, plans, executes, verifies, commits, and advances through every slice until the milestone is complete.
+
+**What happens under the hood**:
+
+- **Fresh session per unit** — Every task, research phase, planning step gets a clean context window
+- **Context pre-loading** — Dispatch prompt includes task plans, prior summaries, decisions
+- **Git branch-per-slice** — Each slice gets `gsd/M001/S01`, tasks commit atomically
+- **Crash recovery** — Session dies? Next run recovers from the surviving session file
+- **Stuck detection** — Same unit dispatched 3 times? Stop with diagnostics
+- **Timeout supervision** — Soft/idle/hard timeouts with recovery steering
+- **Cost tracking** — Token usage and cost per unit, with budget ceiling
+- **Adaptive replanning** — After each slice, reassess if the roadmap still makes sense
+
+## Starting Auto Mode
+
+### From Scratch
+
+No `.gsd/` directory yet:
+
+```bash
+cd ~/my-project
+gsd
+/gsd auto
+```
+
+GSD starts a discussion flow. Answer questions about what you want to build. When the context is captured, auto mode begins research and planning.
+
+### With Existing Roadmap
+
+Roadmap already exists:
+
+```bash
+/gsd auto
+```
+
+GSD reads disk state, derives the next unit, and starts executing.
+
+### Resuming After Pause
+
+You pressed Escape or hit a budget ceiling:
+
+```bash
+/gsd auto
+```
+
+GSD resumes from disk state. All completed units are preserved.
+
+## The Execution Loop
+
+Auto mode is a **state machine driven by files on disk**:
+
+```
+1. Read .gsd/ files
+2. Derive current phase (research, plan, execute, complete, reassess)
+3. Determine next unit of work
+4. Create fresh session
+5. Inject focused prompt with pre-inlined context
+6. Let LLM execute
+7. Wait for agent_end
+8. Go to step 1
+```
+
+No in-memory state survives across units. `.gsd/` is the source of truth.
+
+## Unit Types
+
+Each unit gets a fresh session and a targeted prompt:
+
+<CardGroup cols={2}>
+  <Card title="research-milestone" icon="magnifying-glass">
+    Scout the codebase and ecosystem before planning
+  </Card>
+  <Card title="plan-milestone" icon="map">
+    Create the roadmap (slice decomposition with boundary map)
+  </Card>
+  <Card title="research-slice" icon="binoculars">
+    Optional — scout before planning a slice
+  </Card>
+  <Card title="plan-slice" icon="list-check">
+    Decompose the slice into tasks with must-haves
+  </Card>
+  <Card title="execute-task" icon="code">
+    Run one task from the plan
+  </Card>
+  <Card title="complete-slice" icon="check-double">
+    Write summary, UAT, mark done, squash-merge to main
+  </Card>
+  <Card title="reassess-roadmap" icon="arrows-rotate">
+    Check if the roadmap still makes sense after a slice
+  </Card>
+  <Card title="run-uat" icon="flask">
+    Run user acceptance tests
+  </Card>
+</CardGroup>
+
+## Fresh Session Per Unit
+
+Every unit starts with:
+
+- **Empty context** — No accumulated garbage from prior work
+- **Pre-inlined context** — Task plan, slice plan, prior summaries injected into the prompt
+- **Relevant files only** — The LLM doesn't waste tool calls reading what it needs
+
+**Example dispatch prompt for `execute-task`**:
+
+```markdown
+## UNIT: Execute Task T02 ("File Parser") — Slice S01, Milestone M001
+
+Inlined context:
+- Task plan (T02-PLAN.md)
+- Slice plan excerpt (only tasks T01-T02)
+- T01 summary (what was already built)
+- Decisions register (architectural context)
+
+Backing artifacts:
+- Slice plan: `.gsd/milestones/M001/slices/S01/S01-PLAN.md`
+- Prior summaries: `.gsd/milestones/M001/slices/S01/tasks/T01/T01-SUMMARY.md`
+
+Execute the task plan steps, verify must-haves, write summary.
+```
+
+The LLM starts with everything it needs. No "let me read the plan first" — it's already there.
+
+## Context Budget
+
+Each unit fits in one context window. If a task is too large:
+
+1. **Planning phase catches it** — The plan validator warns if a task has 10+ steps or 12+ files
+2. **Execution phase splits it** — If the LLM runs low on context mid-task, it writes a partial summary and sets `done: false`
+3. **Next dispatch resumes** — Auto mode sees the incomplete summary and dispatches the same task again with recovery context
+
+The iron rule: **a task must fit in one context window.** If it can't, it's two tasks.
+
+## Git Strategy
+
+Auto mode manages git automatically:
+
+### Branch-Per-Slice
+
+Every slice gets its own branch:
+
+```bash
+gsd/M001/S01  # Slice 1
+gsd/M001/S02  # Slice 2
+gsd/M001/S03  # Slice 3
+```
+
+Tasks commit atomically on the slice branch:
+
+```
+gsd/M001/S01:
+  feat(S01/T03): file writer with round-trip fidelity
+  feat(S01/T02): markdown parser for plan files
+  feat(S01/T01): core types and interfaces
+```
+
+### Squash Merge
+
+When a slice completes, `complete-slice` merges to main as one commit:
+
+```bash
+main:
+  feat(M001/S01): data model and type system
+  # ^ squashed from 3 task commits on gsd/M001/S01
+```
+
+The branch is deleted after merge. **One commit per slice on main.**
+
+### Auto-Commit Hook
+
+If the LLM finishes a task but forgets to commit, auto mode runs a post-hook:
+
+```typescript
+if (dirtyFiles) {
+  autoCommitCurrentBranch(basePath, unitType, unitId);
+}
+```
+
+Ensures no uncommitted work is lost between units.
+
+## Crash Recovery
+
+Auto mode writes a lock file at the start of each unit:
+
+```json
+{
+  "unitType": "execute-task",
+  "unitId": "M001/S01/T02",
+  "sessionFile": "/path/to/pi-session-abc123.json",
+  "startedAt": 1678901234567
+}
+```
+
+If the session crashes (power loss, OS kill, network failure), the next `/gsd auto` reads the lock file and the surviving session file:
+
+**Recovery briefing**:
+
+```markdown
+## Crash Recovery
+
+You were executing task T02 when the session crashed.
+
+Recovered 47 tool calls from the crashed session:
+- Read slice plan
+- Read T01 summary
+- Implemented parseMarkdown() in src/parser.ts
+- Wrote unit tests in src/parser.test.ts
+- Ran tests — all passed
+- Started writing T02-SUMMARY.md (incomplete)
+
+Resume from where you left off. The summary needs to be finished.
+```
+
+The LLM continues with full context of what was already done.
+
+## Stuck Detection
+
+If the same unit dispatches 3 times without producing the expected artifact, auto mode stops:
+
+```
+Loop detected: execute-task M001/S01/T02 dispatched 3 times total.
+Expected artifact not found.
+   Expected: .gsd/milestones/M001/slices/S01/tasks/T02/T02-SUMMARY.md
+   Check branch state and .gsd/ artifacts.
+```
+
+**Why this happens**:
+- LLM didn't write the expected file
+- LLM wrote it to the wrong path
+- LLM wrote it but didn't mark the task `[x]` in the plan
+
+**How to fix**:
+1. Check what the LLM actually wrote
+2. If the file exists, the path is wrong — move it
+3. If the task should be done, mark `[x]` in the plan
+4. Run `/gsd auto` to continue
+
+## Timeout Supervision
+
+Auto mode watches for three timeout conditions:
+
+### Soft Timeout (default: 20 minutes)
+
+The LLM is still working but taking longer than expected. A warning message is injected:
+
+```
+Soft timeout warning: You've been working for 20 minutes.
+Wrap up the current step and write the task summary.
+```
+
+This nudges the LLM to finish durable output (summary, commit) before running out of time.
+
+### Idle Timeout (default: 10 minutes)
+
+The LLM hasn't made a tool call in 10 minutes. Auto mode pauses with diagnostics:
+
+```
+Idle timeout: No activity for 10 minutes.
+Auto-mode paused. Run /gsd auto to resume.
+```
+
+Useful when the LLM gets stuck in a loop or waiting for user input.
+
+### Hard Timeout (default: 30 minutes)
+
+Absolute ceiling. Auto mode stops:
+
+```
+Hard timeout: Unit exceeded 30 minutes.
+Auto-mode paused. Check what went wrong.
+```
+
+Configure timeouts in preferences:
+
+```yaml
+auto_supervisor:
+  soft_timeout_minutes: 20
+  idle_timeout_minutes: 10
+  hard_timeout_minutes: 30
+```
+
+## Cost Tracking
+
+Every unit's token usage and cost is captured:
+
+```json
+{
+  "units": [
+    {
+      "type": "execute-task",
+      "id": "M001/S01/T02",
+      "startedAt": 1678901234567,
+      "finishedAt": 1678901456789,
+      "model": "claude-sonnet-4-6",
+      "tokens": {
+        "input": 12500,
+        "output": 3200,
+        "cacheRead": 45000,
+        "cacheWrite": 8000,
+        "total": 68700
+      },
+      "cost": 0.089
+    }
+  ]
+}
+```
+
+The dashboard shows running totals:
+
+```
+Session: $2.45 · 580k tokens · 18 units
+```
+
+### Budget Ceiling
+
+Set a cost limit in preferences:
+
+```yaml
+budget_ceiling: 50.00
+```
+
+When the cumulative cost hits $50, auto mode pauses:
+
+```
+Budget ceiling $50.00 reached (spent $50.12).
+Pausing auto-mode — /gsd auto to continue.
+```
+
+You review progress, adjust the ceiling, and resume.
+
+## Adaptive Replanning
+
+After each slice completes, the `reassess-roadmap` unit checks if the plan still makes sense:
+
+- Did the slice reveal new information?
+- Are dependencies still valid?
+- Should slices be reordered, added, or removed?
+
+If changes are needed, the LLM updates the roadmap before continuing.
+
+**Example**:
+
+```markdown
+## Reassessment: After S01
+
+S01 revealed that the API client library we planned to use doesn't support
+streaming responses. This invalidates S03 (real-time updates).
+
+Changes:
+- Insert new S03: "Implement WebSocket fallback"
+- Old S03 becomes S04
+- Old S04-S06 shift down
+```
+
+Auto mode continues with the updated roadmap.
+
+## Progress Widget
+
+While auto mode runs, a progress widget shows:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+● GSD  AUTO                                             12m 8s
+
+API Foundation
+S01: Data Model
+
+▸ executing  T02: File Parser                         EXECUTE
+
+███████████████░░░░░░░░░  1/4 slices  ·  task 2/3
+
+→ then continue S01
+
+~/my-project (gsd/M001/S01)
+↑12k ↓3k R45k W8k $2.145  62.3%/200k    claude-sonnet-4-6
+
+esc pause                              Ctrl+Alt+G dashboard
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Widget sections**:
+- **Header** — Mode (AUTO), elapsed time, pulsing status dot
+- **Context** — Milestone, slice, task being executed
+- **Progress bar** — Slices completed, current task number
+- **Next step** — What happens after this unit
+- **Footer** — Branch, tokens, cumulative cost, context usage, model
+
+Press `Escape` to pause. Type `/gsd auto` to resume.
+
+## Pausing and Resuming
+
+### Manual Pause
+
+Press `Escape` during execution:
+
+```
+Auto-mode paused (Escape). Type to interact, or /gsd auto to resume.
+```
+
+The conversation is preserved. You can:
+- Inspect what just happened
+- Check the branch state
+- Read summaries
+- Edit `.gsd/` files manually
+- Run `/gsd auto` to resume
+
+### Resuming
+
+```bash
+/gsd auto
+```
+
+GSD reads disk state, derives the next unit, and continues.
+
+## When Auto Mode Stops
+
+Auto mode stops when:
+
+- **Milestone complete** — All slices done, summary written
+- **Blocked** — Missing context, blocker discovered, merge conflict
+- **Stuck loop** — Same unit dispatched 3 times
+- **Budget ceiling hit** — Cost limit reached
+- **Hard timeout** — Unit exceeded 30 minutes
+- **You pressed Escape** — Manual pause
+
+## Example: Full Milestone
+
+Starting with a new project:
+
+```bash
+cd ~/my-project
+gsd
+/gsd auto
+```
+
+**What happens**:
+
+1. **Discussion flow** — LLM asks about the project, captures context
+2. **research-milestone** — Scouts the codebase (empty), reads docs
+3. **plan-milestone** — Creates roadmap with 4 slices
+4. **research-slice (S01)** — Optional scout phase
+5. **plan-slice (S01)** — Decomposes into 3 tasks
+6. **execute-task (S01/T01)** — Implements core types
+7. **execute-task (S01/T02)** — Implements parser
+8. **execute-task (S01/T03)** — Implements writer
+9. **complete-slice (S01)** — Writes summary/UAT, merges to main
+10. **reassess-roadmap** — Roadmap still valid, continue
+11. **plan-slice (S02)** — Plans next slice
+12. **execute-task (S02/T01)** — First task of S02
+
+... (repeats for all slices) ...
+
+39. **complete-milestone** — Writes milestone summary
+40. **Auto mode stopped** — Milestone complete
+
+Final output:
+
+```
+Milestone M001 complete. 4 slices, 12 tasks executed.
+Session: $18.43 · 1.2M tokens · 40 units
+```
+
+## Related
+
+- [Step Mode](/guide/step-mode) — Execute one unit at a time with pauses
+- [Two-Terminal Workflow](/guide/two-terminal-workflow) — Run auto in one terminal, steer from another
+- [Verification](/guide/verification) — How GSD checks that work is actually done

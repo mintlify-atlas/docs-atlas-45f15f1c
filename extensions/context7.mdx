@@ -1,0 +1,320 @@
+---
+title: Context7
+description: Access up-to-date library documentation and API references
+---
+
+The Context7 extension provides two tools for fetching current, version-specific documentation from the Context7 library catalogue. It replaces the need for a separate MCP server with a native pi extension.
+
+## Overview
+
+Context7 gives the agent access to:
+
+- **Up-to-date docs**: Always current library documentation
+- **Version-specific**: Matches the library version you're using
+- **Relevance-ranked**: Returns docs most relevant to your query
+- **Smart budgeting**: Configurable token limits (default 5k, max 10k)
+
+## Tools
+
+### resolve_library
+
+Search the Context7 catalogue to find the correct library ID.
+
+```typescript
+resolve_library({
+  libraryName: "react",
+  query: "hooks useEffect cleanup"
+})
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `libraryName` | string | Library name to search (e.g., `react`, `next.js`) |
+| `query` | string | Optional: user's question for better ranking |
+
+**Returns:**
+
+```json
+{
+  "query": "react",
+  "resultCount": 3,
+  "results": [
+    {
+      "id": "/websites/react_dev",
+      "title": "React (react.dev)",
+      "description": "Official React documentation",
+      "trustScore": 10,
+      "benchmarkScore": 9.8,
+      "totalSnippets": 1250,
+      "totalTokens": 450000,
+      "lastUpdateDate": "2024-03-10T00:00:00Z"
+    }
+  ]
+}
+```
+
+**Best Practices:**
+
+- Choose results with highest `trustScore` (0-10)
+- Use `benchmarkScore` for quality ranking
+- Pass the user's question as `query` for better results
+
+### get_library_docs
+
+Fetch documentation for a specific library, scoped to a topic.
+
+```typescript
+get_library_docs({
+  libraryId: "/websites/react_dev",
+  query: "useEffect cleanup function",
+  tokens: 5000
+})
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `libraryId` | string | Context7 library ID from `resolve_library` |
+| `query` | string | Optional: specific topic to focus docs on |
+| `tokens` | number | Max tokens to return (default: 5000, max: 10000) |
+
+**Returns:**
+
+```json
+{
+  "libraryId": "/websites/react_dev",
+  "query": "useEffect cleanup function",
+  "tokens": 5000,
+  "cached": false,
+  "truncated": false,
+  "charCount": 12500,
+  "content": "# useEffect\n\nThe cleanup function..."
+}
+```
+
+## Workflow
+
+The typical Context7 workflow is two steps:
+
+1. **Resolve** the library to get its ID
+2. **Fetch** docs scoped to your specific question
+
+```typescript
+// Step 1: Find the library
+const search = await resolve_library({
+  libraryName: "next.js",
+  query: "server actions form submission"
+})
+// Returns: { id: "/vercel/next.js", ... }
+
+// Step 2: Get relevant docs
+const docs = await get_library_docs({
+  libraryId: "/vercel/next.js",
+  query: "server actions form submission",
+  tokens: 5000
+})
+// Returns focused docs on server actions + forms
+```
+
+## Query Specificity
+
+The `query` parameter dramatically affects relevance:
+
+<CodeGroup>
+```typescript
+// Good: Specific query
+get_library_docs({
+  libraryId: "/websites/react_dev",
+  query: "useEffect cleanup function memory leaks",
+  tokens: 5000
+})
+// Returns: Focused content on cleanup and memory management
+```
+
+```typescript
+// Less effective: Broad query
+get_library_docs({
+  libraryId: "/websites/react_dev",
+  query: "hooks",
+  tokens: 5000
+})
+// Returns: Generic hooks overview
+```
+</CodeGroup>
+
+## Token Budgeting
+
+Start with 5k tokens, increase only if needed:
+
+```typescript
+// Start with default
+const docs1 = await get_library_docs({
+  libraryId: "/vercel/next.js",
+  query: "server actions",
+  tokens: 5000  // Default
+})
+
+// If insufficient, increase
+if (docs1.truncated || !hasEnoughDetail(docs1.content)) {
+  const docs2 = await get_library_docs({
+    libraryId: "/vercel/next.js",
+    query: "server actions",
+    tokens: 10000  // Max
+  })
+}
+```
+
+## Caching
+
+Context7 uses in-session caching:
+
+```typescript
+// First call: fetches from API
+const docs1 = await get_library_docs({
+  libraryId: "/websites/react_dev",
+  query: "useEffect",
+  tokens: 5000
+})
+// cached: false
+
+// Repeated call: served from cache (same library+query+tokens)
+const docs2 = await get_library_docs({
+  libraryId: "/websites/react_dev",
+  query: "useEffect",
+  tokens: 5000
+})
+// cached: true (instant, no API call)
+```
+
+Cache is keyed by `${libraryId}::${query}::${tokens}`.
+
+## API Key (Optional)
+
+Context7 works without an API key (1000 requests/month free tier):
+
+```bash
+# Optional: for higher rate limits
+export CONTEXT7_API_KEY=your_key_here
+```
+
+Get a key at https://context7.com/dashboard
+
+**Rate Limits:**
+
+| Tier | Requests/Month | Requires Key |
+|------|----------------|---------------|
+| Free | 1,000 | No |
+| Pro | 100,000 | Yes |
+
+## Popular Libraries
+
+Context7 has high-quality docs for:
+
+- **JavaScript**: React, Next.js, Vue, Svelte, Astro
+- **TypeScript**: Official docs, type system references
+- **Backend**: Express, Fastify, tRPC, Prisma
+- **Build Tools**: Vite, Webpack, Rollup, esbuild
+- **Testing**: Jest, Vitest, Playwright, Cypress
+- **Styling**: Tailwind CSS, Styled Components, Emotion
+- **State**: Zustand, Jotai, Redux Toolkit
+
+And hundreds more at https://context7.com
+
+## Troubleshooting
+
+### No Library Found
+
+```
+No libraries found for "obscure-lib"
+```
+
+**Solutions:**
+- Check spelling
+- Try alternate name (e.g., `reactjs` vs `react`)
+- Search Context7 website to verify availability
+
+### No Docs Returned
+
+```
+No documentation found for "complex query" in /websites/react_dev
+```
+
+**Solutions:**
+- Simplify or broaden the query
+- Remove the query parameter for full library docs
+- Verify the library ID is correct
+
+### Truncated Output
+
+```
+[Truncated: 2000/3500 lines shown]
+```
+
+**Solutions:**
+- Make query more specific to reduce irrelevant content
+- Increase `tokens` parameter (up to 10000)
+- Multiple focused queries instead of one broad query
+
+## Example: Multi-Step Research
+
+```typescript
+// Research a complex topic across multiple libraries
+
+// 1. Get Next.js server actions overview
+const nextDocs = await get_library_docs({
+  libraryId: "/vercel/next.js",
+  query: "server actions",
+  tokens: 5000
+})
+
+// 2. Get React form handling context
+const reactDocs = await get_library_docs({
+  libraryId: "/websites/react_dev",
+  query: "form submission useActionState",
+  tokens: 5000
+})
+
+// 3. Get Zod validation patterns
+const zodDocs = await get_library_docs({
+  libraryId: "/npm/zod",
+  query: "schema validation errors",
+  tokens: 3000
+})
+
+// All three are cached for the session
+```
+
+## Comparison: Context7 vs Search the Web
+
+| Feature | Context7 | Search the Web |
+|---------|----------|----------------|
+| **Best for** | Library docs, API references | Blog posts, tutorials, news |
+| **Freshness** | Library-version locked | Real-time web search |
+| **Quality** | Curated, high trust score | Variable (any web page) |
+| **Scope** | Specific to query | Broad search results |
+| **Format** | Structured markdown | Raw page content |
+
+**Use Context7 when:**
+- You need official library documentation
+- You want version-specific API references
+- You're working with well-known libraries
+
+**Use Search the Web when:**
+- You need blog posts or tutorials
+- You're researching breaking news or recent releases
+- The library isn't in Context7 catalogue
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="Search the Web" icon="magnifying-glass" href="/extensions/search-web">
+    For broader web research and tutorials
+  </Card>
+  
+  <Card title="MCPorter" icon="plug" href="/extensions/mcporter">
+    For external tool integrations via MCP
+  </Card>
+</CardGroup>

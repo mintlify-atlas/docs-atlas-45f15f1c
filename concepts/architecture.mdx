@@ -1,0 +1,163 @@
+---
+title: Architecture
+description: Understand how GSD is built and how it controls the agent harness
+---
+
+## High-Level Architecture
+
+GSD 2 is a **TypeScript application built on the Pi SDK** that controls the agent session, not a prompt framework injected into an LLM's context.
+
+```
+gsd (CLI binary)
+  └─ loader.ts          Sets PI_PACKAGE_DIR, GSD env vars, dynamic-imports cli.ts
+      └─ cli.ts         Wires SDK managers, loads extensions, starts InteractiveMode
+          ├─ onboarding.ts   First-run setup wizard (LLM provider + tool keys)
+          ├─ wizard.ts       Env hydration from stored auth.json credentials
+          ├─ app-paths.ts    ~/.gsd/agent/, ~/.gsd/sessions/, auth.json
+          ├─ resource-loader.ts  Syncs bundled extensions + agents to ~/.gsd/agent/
+          └─ src/resources/
+              ├─ extensions/gsd/    Core GSD extension (auto, state, commands, ...)
+              ├─ extensions/...     12 supporting extensions
+              ├─ agents/            scout, researcher, worker
+              ├─ AGENTS.md          Agent routing instructions
+              └─ GSD-WORKFLOW.md    Manual bootstrap protocol
+```
+
+## What Changed From v1
+
+The original GSD was a collection of markdown prompts installed into `~/.claude/commands/`. It relied entirely on the LLM reading those prompts and doing the right thing.
+
+| Capability | v1 (Prompt Framework) | v2 (Agent Application) |
+|------------|----------------------|------------------------|
+| Runtime | Claude Code slash commands | Standalone CLI via Pi SDK |
+| Context management | Hope the LLM doesn't fill up | Fresh session per task, programmatic |
+| Auto mode | LLM self-loop | State machine reading `.gsd/` files |
+| Crash recovery | None | Lock files + session forensics |
+| Git strategy | LLM writes git commands | Programmatic branch-per-slice, squash merge |
+| Cost tracking | None | Per-unit token/cost ledger with dashboard |
+| Stuck detection | None | Retry once, then stop with diagnostics |
+| Timeout supervision | None | Soft/idle/hard timeouts with recovery steering |
+| Context injection | "Read this file" | Pre-inlined into dispatch prompt |
+| Roadmap reassessment | Manual | Automatic after each slice completes |
+
+## Core Design Decisions
+
+### Two-File Loader Pattern
+
+From `src/loader.ts` and `src/cli.ts`, GSD uses a two-stage boot process:
+
+1. **loader.ts** sets environment variables with zero SDK imports
+2. **cli.ts** (dynamically imported) does static SDK imports
+
+This ensures `PI_PACKAGE_DIR` is set before any SDK code evaluates, avoiding theme resolution collisions.
+
+### pkg/ Shim Directory
+
+`PI_PACKAGE_DIR` points to a `pkg/` directory (not project root) to isolate Pi's theme resolution from GSD's `src/` directory. Contains only `piConfig` and theme assets.
+
+### Always-Overwrite Sync
+
+Bundled extensions and agents sync to `~/.gsd/agent/` on **every launch**, not just first run. This ensures `npm update -g gsd-pi` takes effect immediately.
+
+### State Lives on Disk
+
+`.gsd/` is the source of truth. Auto mode reads it, writes it, and advances based on what it finds. No in-memory state survives across sessions.
+
+From `src/resources/extensions/gsd/auto.ts`:
+
+```typescript
+/**
+ * GSD Auto Mode — Fresh Session Per Unit
+ *
+ * State machine driven by .gsd/ files on disk. Each "unit" of work
+ * (plan slice, execute task, complete slice) gets a fresh session via
+ * the stashed ctx.newSession() pattern.
+ *
+ * The extension reads disk state after each agent_end, determines the
+ * next unit type, creates a fresh session, and injects a focused prompt
+ * telling the LLM which files to read and what to do.
+ */
+```
+
+## Extension System
+
+GSD ships with 13 bundled extensions, all loaded automatically:
+
+<CardGroup cols={2}>
+  <Card title="GSD Core" icon="gears">
+    Core workflow engine, auto mode, commands, dashboard
+  </Card>
+  <Card title="Browser Tools" icon="browser">
+    Playwright-based browser for UI verification
+  </Card>
+  <Card title="Search the Web" icon="magnifying-glass">
+    Brave Search, Tavily, or Jina page extraction
+  </Card>
+  <Card title="Google Search" icon="google">
+    Gemini-powered web search with AI-synthesized answers
+  </Card>
+  <Card title="Context7" icon="book">
+    Up-to-date library/framework documentation
+  </Card>
+  <Card title="Background Shell" icon="terminal">
+    Long-running process management with readiness detection
+  </Card>
+  <Card title="Subagent" icon="user-robot">
+    Delegated tasks with isolated context windows
+  </Card>
+  <Card title="Mac Tools" icon="apple">
+    macOS native app automation via Accessibility APIs
+  </Card>
+  <Card title="MCPorter" icon="plug">
+    Lazy on-demand MCP server integration
+  </Card>
+  <Card title="Voice" icon="microphone">
+    Real-time speech-to-text transcription (macOS)
+  </Card>
+  <Card title="Slash Commands" icon="slash">
+    Custom command creation
+  </Card>
+  <Card title="Ask User Questions" icon="circle-question">
+    Structured user input with single/multi-select
+  </Card>
+</CardGroup>
+
+## Bundled Agents
+
+Three specialized subagents for delegated work:
+
+| Agent | Role |
+|-------|------|
+| **Scout** | Fast codebase recon — returns compressed context for handoff |
+| **Researcher** | Web research — finds and synthesizes current information |
+| **Worker** | General-purpose execution in an isolated context window |
+
+## Fresh Context Per Task
+
+Every task, research phase, and planning step gets a clean 200k-token context window. No accumulated garbage. The dispatch prompt includes:
+
+- Inlined task plans
+- Slice plans
+- Prior task summaries
+- Dependency summaries
+- Roadmap excerpts
+- Decisions register
+
+The LLM starts with everything it needs instead of spending tool calls reading files.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Workflow" href="/concepts/workflow" icon="arrow-progress">
+    Learn the phase-based workflow
+  </Card>
+  <Card title="Milestones, Slices & Tasks" href="/concepts/milestones-slices-tasks" icon="sitemap">
+    Understand the work hierarchy
+  </Card>
+  <Card title="Context Engineering" href="/concepts/context-engineering" icon="file-lines">
+    See what files GSD manages
+  </Card>
+  <Card title="Git Strategy" href="/concepts/git-strategy" icon="git-alt">
+    Learn the branch-per-slice model
+  </Card>
+</CardGroup>

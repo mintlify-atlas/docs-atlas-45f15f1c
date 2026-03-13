@@ -1,0 +1,275 @@
+---
+title: Workflow
+description: How work flows through GSD's phase-based state machine
+---
+
+## The State Machine
+
+Each slice flows through phases automatically:
+
+```
+Discuss (optional) → Research (optional) → Plan → Execute (per task) → Complete → Reassess Roadmap → Next Slice
+```
+
+<Steps>
+  <Step title="Discuss (Optional)">
+    Capture user decisions on gray areas before planning.
+    
+    **Produces:** `context.md` at milestone or slice level
+    
+    **When to use:** When the scope has ambiguities the user should weigh in on
+    
+    **When to skip:** When the user already knows exactly what they want
+  </Step>
+  
+  <Step title="Research (Optional)">
+    Scout the codebase and relevant docs before planning.
+    
+    **Produces:** `research.md` at milestone or slice level
+    
+    **When to use:** When working in unfamiliar code, with unfamiliar libraries, or on complex integrations
+    
+    **When to skip:** When the codebase is familiar and the work is straightforward
+    
+    From `GSD-WORKFLOW.md`:
+    
+    ```markdown
+    ## Don't Hand-Roll
+    | Problem | Don't Build | Use Instead | Why |
+    |---------|-------------|-------------|-----|
+    Problems that look simple but have existing solutions.
+    
+    ## Common Pitfalls
+    ### Pitfall 1: Name
+    **What goes wrong:** ...
+    **Why it happens:** ...
+    **How to avoid:** ...
+    **Warning signs:** ...
+    ```
+  </Step>
+  
+  <Step title="Plan">
+    Decompose work into context-window-sized tasks with must-haves.
+    
+    **Produces:** `plan.md` + individual `T01-plan.md` files
+    
+    **For a milestone (roadmap):**
+    - Decompose the vision into 4-10 demoable vertical slices
+    - Order by risk (high-risk first to validate feasibility early)
+    - Write `roadmap.md` with checkboxes, risk levels, dependencies, demo sentences
+    - Write the boundary map — for each slice, specify what it produces and consumes
+    
+    **For a slice (task decomposition):**
+    - Read the slice's entry in `roadmap.md` and its boundary map section
+    - Decompose into 1-7 tasks, each fitting one context window
+    - Each task needs: title, description, steps (3-10), must-haves (observable verification criteria)
+  </Step>
+  
+  <Step title="Execute">
+    Do the work for one task in a fresh context window.
+    
+    **Produces:** Code changes + task summary
+    
+    From `prompts/execute-task.md`:
+    
+    ```markdown
+    Then:
+    0. Narrate step transitions, key implementation decisions, and verification outcomes as you work
+    1. Execute the steps in the inlined task plan
+    2. Build the real thing. Stubs and mocks are for tests, not for the shipped feature.
+    3. Write or update tests as part of execution — tests are verification, not an afterthought
+    4. Verify must-haves are met by running concrete checks (tests, commands, observable behaviors)
+    5. Write task summary
+    6. Mark task done in plan.md
+    ```
+  </Step>
+  
+  <Step title="Verify">
+    Check that the task's must-haves are actually met.
+    
+    **Verification ladder — use the strongest tier you can reach:**
+    
+    1. **Static:** Files exist, exports present, wiring connected, not stubs
+    2. **Command:** Tests pass, build succeeds, lint clean, blocked command works
+    3. **Behavioral:** Browser flows work, API responses correct
+    4. **Human:** Ask the user only when you genuinely can't verify yourself
+    
+    <Warning>
+      "All steps done" is NOT verification. Check the actual outcomes.
+    </Warning>
+  </Step>
+  
+  <Step title="Complete">
+    After all tasks in a slice complete:
+    
+    1. Write slice `summary.md` (compresses all task summaries)
+    2. Write slice `uat.md` — a non-blocking human test script
+    3. Mark the slice checkbox in `roadmap.md` as `[x]`
+    4. Update `state.md` with new position
+    5. Update milestone `summary.md` with the completed slice's contributions
+    6. Continue to next slice immediately
+  </Step>
+  
+  <Step title="Reassess Roadmap">
+    After each slice completes, the roadmap is reassessed.
+    
+    If the work revealed new information that changes the plan, slices are reordered, added, or removed before continuing.
+  </Step>
+</Steps>
+
+## Auto Mode vs Step Mode
+
+### Step Mode (`/gsd` or `/gsd next`)
+
+The state machine pauses between units with a wizard showing what completed and what's next. You advance one step at a time, review the output, and continue when ready.
+
+- **No `.gsd/` directory** → Start a new project. Discussion flow captures your vision
+- **Milestone exists, no roadmap** → Discuss or research the milestone
+- **Roadmap exists, slices pending** → Plan the next slice, execute one task, or switch to auto
+- **Mid-task** → Resume from where you left off
+
+### Auto Mode (`/gsd auto`)
+
+Run it, walk away, come back to built software.
+
+```typescript
+/**
+ * State machine driven by .gsd/ files on disk. Each "unit" of work
+ * (plan slice, execute task, complete slice) gets a fresh session via
+ * the stashed ctx.newSession() pattern.
+ */
+```
+
+**What happens under the hood:**
+
+<AccordionGroup>
+  <Accordion title="1. Fresh session per unit">
+    Every task, every research phase, every planning step gets a clean 200k-token context window. No accumulated garbage.
+  </Accordion>
+  
+  <Accordion title="2. Context pre-loading">
+    The dispatch prompt includes inlined task plans, slice plans, prior task summaries, dependency summaries, roadmap excerpts, and decisions register.
+  </Accordion>
+  
+  <Accordion title="3. Git branch-per-slice">
+    Each slice gets its own branch (`gsd/M001/S01`). Tasks commit atomically on the branch. When the slice completes, it's squash-merged to main as one clean commit.
+  </Accordion>
+  
+  <Accordion title="4. Crash recovery">
+    A lock file tracks the current unit. If the session dies, the next `/gsd auto` reads the surviving session file, synthesizes a recovery briefing from every tool call that made it to disk, and resumes with full context.
+  </Accordion>
+  
+  <Accordion title="5. Stuck detection">
+    If the same unit dispatches twice (the LLM didn't produce the expected artifact), it retries once with a deep diagnostic. If it fails again, auto mode stops with the exact file it expected.
+  </Accordion>
+  
+  <Accordion title="6. Timeout supervision">
+    Soft timeout warns the LLM to wrap up. Idle watchdog detects stalls. Hard timeout pauses auto mode.
+  </Accordion>
+  
+  <Accordion title="7. Cost tracking">
+    Every unit's token usage and cost is captured, broken down by phase, slice, and model. The dashboard shows running totals and projections.
+  </Accordion>
+  
+  <Accordion title="8. Adaptive replanning">
+    After each slice completes, the roadmap is reassessed. If the work revealed new information that changes the plan, slices are reordered, added, or removed.
+  </Accordion>
+</AccordionGroup>
+
+## Two Terminals, One Project
+
+The real workflow: run auto mode in one terminal, steer from another.
+
+<CodeGroup>
+
+```bash Terminal 1 — let it build
+gsd
+/gsd auto
+```
+
+```bash Terminal 2 — steer while it works
+gsd
+/gsd discuss    # talk through architecture decisions
+/gsd status     # check progress
+/gsd queue      # queue the next milestone
+```
+
+</CodeGroup>
+
+Both terminals read and write the same `.gsd/` files on disk. Your decisions in terminal 2 are picked up automatically at the next phase boundary.
+
+## Phase Transitions
+
+From `types.ts`:
+
+```typescript
+export type Phase = 
+  | 'pre-planning' 
+  | 'discussing' 
+  | 'researching' 
+  | 'planning' 
+  | 'executing' 
+  | 'verifying' 
+  | 'summarizing' 
+  | 'advancing' 
+  | 'completing-milestone' 
+  | 'replanning-slice' 
+  | 'complete' 
+  | 'paused' 
+  | 'blocked';
+```
+
+Every phase transition is tracked in `STATE.md` and drives the next dispatch.
+
+## Continue-Here Protocol
+
+From `GSD-WORKFLOW.md`:
+
+<Info>
+  **When to write `continue.md`:**
+  - You're about to lose context (compaction, session end, Ctrl+C)
+  - The current task isn't done yet
+  - You want to pause and come back later
+</Info>
+
+```markdown
+---
+milestone: M001
+slice: S01
+task: T02
+step: 3
+total_steps: 7
+saved_at: 2026-03-07T15:30:00Z
+---
+
+## Completed Work
+- What's already done in this task and prior tasks in the slice.
+
+## Remaining Work
+- What steps remain, with enough detail to resume.
+
+## Decisions Made
+- Key decisions and WHY (so next session doesn't re-debate).
+
+## Context
+The "vibe" — what you were thinking, what's tricky, what to watch out for.
+
+## Next Action
+The EXACT first thing to do when resuming. Not vague. Specific.
+```
+
+**How to resume:**
+1. Read `continue.md`
+2. Delete `continue.md` (it's consumed, not permanent)
+3. Pick up from "Next Action"
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Milestones, Slices & Tasks" href="/concepts/milestones-slices-tasks" icon="sitemap">
+    Understand the work hierarchy
+  </Card>
+  <Card title="Context Engineering" href="/concepts/context-engineering" icon="file-lines">
+    See what files GSD manages
+  </Card>
+</CardGroup>

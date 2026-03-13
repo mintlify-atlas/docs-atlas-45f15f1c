@@ -1,0 +1,592 @@
+---
+title: Two-Terminal Workflow
+description: Run auto mode in one terminal, steer from another — the real workflow
+---
+
+The most powerful way to use GSD: let it build in one terminal while you steer from another.
+
+## The Pattern
+
+**Terminal 1** — Let it run:
+
+```bash
+cd ~/my-project
+gsd
+/gsd auto
+```
+
+Auto mode executes slices, commits, advances. You walk away.
+
+**Terminal 2** — Steer while it works:
+
+```bash
+cd ~/my-project
+gsd
+/gsd status     # Check progress
+/gsd discuss    # Discuss architecture decisions
+/gsd queue      # Queue future milestones
+```
+
+Both terminals read and write the same `.gsd/` files. Your decisions in terminal 2 are picked up automatically at the next phase boundary.
+
+## Why It Works
+
+### State Lives on Disk
+
+GSD's state machine is **driven by files**:
+
+- `.gsd/STATE.md` — Current phase (executing, planning, blocked)
+- `.gsd/milestones/M001/M001-ROADMAP.md` — Slice checkboxes, dependencies
+- `.gsd/milestones/M001/M001-CONTEXT.md` — User decisions from discuss phase
+- `.gsd/milestones/M001/slices/S01/S01-PLAN.md` — Task checkboxes, must-haves
+
+No shared memory. No locks. No race conditions.
+
+If you edit a file in terminal 2, terminal 1's next dispatch reads the new content.
+
+### Phase Boundaries
+
+Auto mode checks disk state at **phase boundaries**:
+
+- After `complete-slice` → reads roadmap to find next slice
+- After `reassess-roadmap` → reads updated roadmap
+- After `execute-task` → reads plan to find next task
+
+If you queued a new milestone in terminal 2, terminal 1 sees it after the current milestone completes.
+
+### No Need to Stop
+
+You don't have to pause terminal 1 to make changes in terminal 2. Just edit the files. Auto mode picks them up.
+
+## Common Workflows
+
+### Check Progress While Building
+
+**Terminal 1**:
+
+```bash
+/gsd auto
+# ... executing S02/T03 ...
+```
+
+**Terminal 2**:
+
+```bash
+/gsd status
+```
+
+**Output**:
+
+```
+╭─ GSD Status ─────────────────────────────────────────────────╮
+│                                                               │
+│ Milestone M001: API Foundation                                │
+│ Phase: executing                                              │
+│                                                               │
+│ Progress                                                      │
+│ ✓ S01: Data Model (3/3 tasks)                                │
+│ → S02: API Endpoints (2/4 tasks) ← active                    │
+│ ○ S03: Authentication (0/3 tasks)                            │
+│ ○ S04: Documentation (0/2 tasks)                             │
+│                                                               │
+│ Current: Executing T03: Request Validation                    │
+│                                                               │
+│ Cost: $4.23 · 512k tokens · 14 units                         │
+│                                                               │
+╰───────────────────────────────────────────────────────────────╯
+```
+
+Terminal 1 keeps running. You just checked in.
+
+### Queue Future Work
+
+**Terminal 1**:
+
+```bash
+/gsd auto
+# ... executing M001 ...
+```
+
+**Terminal 2**:
+
+```bash
+/gsd queue
+```
+
+GSD starts a conversation:
+
+```
+Queuing new work onto an existing GSD project.
+
+Currently executing: M001 — API Foundation (phase: executing).
+0 milestone(s) complete, 0 pending.
+Next available milestone ID: M002.
+
+What do you want to build next?
+```
+
+You discuss. GSD writes:
+
+- `.gsd/milestones/M002/M002-CONTEXT.md`
+- `.gsd/milestones/M003/M003-CONTEXT.md`
+- Updates `.gsd/PROJECT.md` with the new milestones
+
+Terminal 1 finishes M001, reads disk state, sees M002 waiting, starts planning it.
+
+### Discuss Architecture Mid-Execution
+
+**Terminal 1**:
+
+```bash
+/gsd auto
+# ... planning S03 ...
+```
+
+**Terminal 2**:
+
+```bash
+/gsd discuss
+```
+
+Picker shows:
+
+```
+GSD — Discuss a slice
+
+M001: API Foundation
+Pick a slice to interview. Context file will be written when done.
+
+→ S03: Authentication (active slice)
+→ S04: Documentation (upcoming)
+
+Run /gsd discuss when ready.
+```
+
+You pick S03. GSD asks:
+
+```
+You're planning to implement authentication. Let's discuss the approach.
+
+- OAuth provider or JWT?
+- Session storage: memory, Redis, database?
+- Multi-factor auth in scope?
+- Role-based access control?
+```
+
+You answer. GSD writes `.gsd/milestones/M001/slices/S03/S03-CONTEXT.md`.
+
+Terminal 1 finishes planning S03. The plan includes your decisions because it reads the context file.
+
+## Safe Operations
+
+These are **safe to run in terminal 2** while terminal 1 is executing:
+
+<CardGroup cols={2}>
+  <Card title="/gsd status" icon="chart-bar">
+    Read-only. No files written.
+  </Card>
+  <Card title="/gsd queue" icon="layer-plus">
+    Writes future milestone context. Terminal 1 won't touch it yet.
+  </Card>
+  <Card title="/gsd discuss" icon="comments">
+    Writes slice context. Terminal 1 reads it when planning that slice.
+  </Card>
+  <Card title="Ctrl+Alt+G" icon="gauge">
+    Dashboard overlay. Read-only.
+  </Card>
+</CardGroup>
+
+### What Not to Do
+
+Avoid editing files that terminal 1 is actively working on:
+
+- ❌ Don't edit the **active slice plan** (`S02-PLAN.md`) while terminal 1 is executing S02
+- ❌ Don't mark tasks `[x]` manually while terminal 1 is executing them
+- ❌ Don't delete `.gsd/STATE.md` or lock files while terminal 1 is running
+
+These will confuse the state machine. Terminal 1 derives state from disk. If the disk changes mid-unit, behavior is undefined.
+
+**Safe edits**:
+- ✅ Edit **future slice context** (S03-CONTEXT.md while S02 is executing)
+- ✅ Edit **decisions register** (DECISIONS.md — append-only)
+- ✅ Edit **future milestone context** (M002-CONTEXT.md while M001 is executing)
+
+## Example: Full Two-Terminal Session
+
+You start a new project:
+
+**Terminal 1**:
+
+```bash
+cd ~/api-project
+gsd
+/gsd auto
+```
+
+GSD discusses, plans, starts executing M001.
+
+You walk away. It's building S01.
+
+---
+
+**30 minutes later**, you check in:
+
+**Terminal 2**:
+
+```bash
+cd ~/api-project
+gsd
+/gsd status
+```
+
+**Output**:
+
+```
+Milestone M001: API Foundation
+Phase: executing
+
+Progress
+✓ S01: Data Model (3/3 tasks)
+✓ S02: API Endpoints (4/4 tasks)
+→ S03: Authentication (1/3 tasks) ← active
+○ S04: Documentation (0/2 tasks)
+
+Current: Executing T02: Session Middleware
+
+Cost: $6.78 · 890k tokens · 24 units
+```
+
+Good progress. You realize you want to add rate limiting to S03.
+
+**Terminal 2**:
+
+```bash
+/gsd discuss
+→ S03: Authentication
+```
+
+GSD asks about auth decisions. You mention:
+
+```
+- Rate limiting: 100 req/min per IP
+- Store in Redis
+- Return 429 with Retry-After header
+```
+
+GSD writes S03-CONTEXT.md.
+
+You also want to queue the next milestone:
+
+**Terminal 2**:
+
+```bash
+/gsd queue
+```
+
+GSD asks what's next. You describe:
+
+```
+M002: Real-time Features
+- WebSocket server
+- Event broadcasting
+- Presence tracking
+```
+
+GSD writes M002-CONTEXT.md and updates PROJECT.md.
+
+---
+
+**Terminal 1** (still running):
+
+```
+# Finishes T02: Session Middleware
+# Reads S03-CONTEXT.md before planning T03
+# Plans T03 with rate limiting included
+# Executes T03
+# Completes S03
+# Executes S04
+# Completes M001
+# Reads disk state → sees M002 pending
+# Starts planning M002
+```
+
+Your decisions in terminal 2 were picked up automatically.
+
+## Terminal 2 Commands
+
+### Read-Only Commands
+
+| Command | What It Shows |
+|---------|---------------|
+| `/gsd status` | Progress dashboard |
+| `Ctrl+Alt+G` | Overlay dashboard (while LLM is running) |
+| `/gsd doctor` | Validate `.gsd/` integrity |
+
+### Write Commands (Safe During Auto)
+
+| Command | What It Writes | When Terminal 1 Reads It |
+|---------|----------------|---------------------------|
+| `/gsd queue` | Future milestone context | After current milestone completes |
+| `/gsd discuss` | Slice context files | When planning that slice |
+| `/gsd prefs` | Preferences (model, timeouts, budget) | Next unit dispatch |
+
+### Unsafe Commands
+
+Don't run these in terminal 2 while terminal 1 is executing:
+
+- ❌ `/gsd auto` — Two auto-mode instances will conflict
+- ❌ `/gsd next` — Step mode in parallel with auto mode is undefined
+- ❌ `/gsd stop` — Terminal 1 won't see it (no shared memory)
+
+To stop terminal 1, **press Escape in terminal 1** or close its window.
+
+## Practical Patterns
+
+### Sprint Planning Pattern
+
+**Terminal 1**: Build the current sprint.
+
+```bash
+/gsd auto  # M001 executing
+```
+
+**Terminal 2**: Plan the next sprint.
+
+```bash
+/gsd queue  # Write M002, M003, M004 context
+```
+
+By the time M001 finishes, M002-M004 are ready to execute.
+
+### Review While Building
+
+**Terminal 1**: Auto mode runs.
+
+**Terminal 2**: Check each completed slice.
+
+```bash
+# Terminal 1 finishes S01
+/gsd status
+
+# Read the summary
+cat .gsd/milestones/M001/slices/S01/S01-SUMMARY.md
+
+# Run the UAT
+cat .gsd/milestones/M001/slices/S01/S01-UAT.md
+npm test  # or whatever the UAT says
+
+# Check git log
+git log --oneline main
+
+# If satisfied, let S02 continue
+# If not, press Escape in terminal 1 and debug
+```
+
+### Pairing Pattern
+
+Two people, two terminals:
+
+**Person 1 (Terminal 1)**: Runs auto mode, monitors progress.
+
+**Person 2 (Terminal 2)**: Discusses upcoming slices, queues future work.
+
+Person 1 watches the build. Person 2 stays ahead, ensuring context is ready.
+
+## Dashboard in Terminal 2
+
+Run this in terminal 2 to watch terminal 1's progress:
+
+```bash
+watch -n 5 'cat .gsd/STATE.md'
+```
+
+Every 5 seconds, shows:
+
+```markdown
+---
+active_milestone: M001
+active_slice: S02
+active_task: T03
+phase: executing
+completed_slices: 1
+total_slices: 4
+last_updated: 2026-03-13T10:34:22Z
+---
+
+## Milestone M001: API Foundation
+
+Phase: executing
+Slice: S02 (API Endpoints)
+Task: T03 (Request Validation)
+
+Progress: 1/4 slices complete, S02 task 3/4 in progress
+```
+
+Live view of what terminal 1 is doing.
+
+## When Things Go Wrong
+
+### Terminal 1 Hit a Blocker
+
+**Terminal 2**:
+
+```bash
+/gsd status
+```
+
+**Output**:
+
+```
+Phase: blocked
+Blocker: Missing environment variable DATABASE_URL
+```
+
+**Fix it**:
+
+```bash
+echo "DATABASE_URL=postgresql://..." >> .env
+```
+
+**Terminal 1** (still paused):
+
+Press `Escape` to acknowledge the pause, then:
+
+```bash
+/gsd auto  # Resume
+```
+
+GSD reads the new `.env`, continues.
+
+### Terminal 1 Got Stuck
+
+**Terminal 2**:
+
+```bash
+/gsd status
+```
+
+**Output**:
+
+```
+Loop detected: execute-task M001/S02/T03 dispatched 3 times.
+Expected artifact not found: .gsd/.../T03-SUMMARY.md
+```
+
+**Inspect terminal 1** — see what it actually wrote.
+
+**Manual fix**:
+
+If the LLM wrote the summary to the wrong path, move it:
+
+```bash
+mv .gsd/milestones/M001/T03-SUMMARY.md \
+   .gsd/milestones/M001/slices/S02/tasks/T03/T03-SUMMARY.md
+```
+
+Mark the task done:
+
+```bash
+# Edit .gsd/milestones/M001/slices/S02/S02-PLAN.md
+# Change [ ] T03 to [x] T03
+```
+
+**Terminal 1**: Resume.
+
+```bash
+/gsd auto
+```
+
+GSD sees T03 is done, moves to T04.
+
+## Real-World Example
+
+**Scenario**: Building a multi-tenant SaaS app. You have 6 milestones planned. You want to build M001-M002 this week, then queue M003-M006 for next sprint.
+
+**Monday morning**:
+
+**Terminal 1**:
+
+```bash
+cd ~/saas-app
+gsd
+/gsd auto  # Start M001
+```
+
+**Terminal 2**:
+
+```bash
+cd ~/saas-app
+gsd
+/gsd queue  # Queue M003-M006
+```
+
+You walk away. Terminal 1 builds. Terminal 2 queues.
+
+**Monday afternoon**:
+
+**Terminal 2**:
+
+```bash
+/gsd status
+```
+
+**Output**:
+
+```
+M001: Tenant Isolation — 3/5 slices complete
+M002: Billing System — pending (will start after M001)
+M003-M006: queued
+```
+
+**Tuesday morning**:
+
+**Terminal 2**:
+
+```bash
+/gsd status
+```
+
+**Output**:
+
+```
+M001: complete
+M002: 2/4 slices complete
+```
+
+You discuss M002's next slice:
+
+**Terminal 2**:
+
+```bash
+/gsd discuss
+→ S03: Payment Webhooks
+```
+
+GSD captures your decisions. Terminal 1 uses them when planning S03.
+
+**Tuesday afternoon**:
+
+M002 finishes. Terminal 1 moves to M003 automatically.
+
+**End of week**:
+
+```bash
+/gsd status
+```
+
+**Output**:
+
+```
+M001: complete
+M002: complete
+M003: 2/3 slices complete
+M004-M006: pending
+```
+
+You shipped M001-M002 this week. M003-M006 are ready for next sprint.
+
+## Related
+
+- [Auto Mode](/guide/auto-mode) — How autonomous execution works
+- [Step Mode](/guide/step-mode) — Execute one unit at a time with pauses
+- [Verification](/guide/verification) — How GSD ensures work is actually done

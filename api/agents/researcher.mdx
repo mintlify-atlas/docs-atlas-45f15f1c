@@ -1,0 +1,373 @@
+---
+title: "Researcher Agent"
+description: "Web research agent using Brave Search for current information"
+icon: "globe"
+---
+
+## Overview
+
+The Researcher agent performs web research using Brave Search and synthesizes findings into clear, well-structured reports with citations.
+
+Researcher operates in an isolated context window, gathering information from the web and returning a summary with sources.
+
+## Purpose
+
+<CardGroup cols={2}>
+  <Card title="Current Information" icon="newspaper">
+    Find up-to-date information from the web
+  </Card>
+  <Card title="Synthesis" icon="book">
+    Combine multiple sources into coherent summary
+  </Card>
+  <Card title="Source Tracking" icon="link">
+    Every finding includes source URL and context
+  </Card>
+  <Card title="Fact-Based" icon="check">
+    No speculation — only what sources actually say
+  </Card>
+</CardGroup>
+
+## When to Use Researcher
+
+Use Researcher when you need to:
+- Learn about unfamiliar technologies or APIs
+- Find current best practices or patterns
+- Research error messages or issues
+- Compare libraries or approaches
+- Verify assumptions with external sources
+
+**Don't use Researcher for:**
+- Questions about the current codebase (use Scout)
+- Information already in documentation (read docs directly)
+- Tasks requiring implementation (use Worker)
+
+## Agent Definition
+
+```yaml
+---
+name: researcher
+description: Web researcher that finds and synthesizes current information using Brave Search
+tools: web_search, bash
+---
+```
+
+<ParamField path="name" type="string">
+  Agent identifier: `researcher`
+</ParamField>
+
+<ParamField path="description" type="string">
+  Short description of agent purpose
+</ParamField>
+
+<ParamField path="tools" type="array">
+  Available tools: `web_search`, `bash`
+</ParamField>
+
+## Strategy
+
+Researcher follows a systematic approach:
+
+<Steps>
+  <Step title="Broad search">
+    Start with 2-3 targeted queries to get breadth
+  </Step>
+  <Step title="Synthesize findings">
+    Combine information from multiple sources into coherent narrative
+  </Step>
+  <Step title="Cite sources">
+    Include URL and context for every fact or finding
+  </Step>
+</Steps>
+
+## Output Format
+
+Researcher returns structured findings in markdown format:
+
+### Summary
+
+Brief 2-3 sentence overview:
+
+```markdown
+## Summary
+
+Stripe Checkout Sessions provide a hosted payment page that handles the 
+entire payment flow including card collection, authentication, and 
+subscription creation. They're recommended over Payment Intents for 
+subscription use cases because they include built-in success/cancel 
+handling and automatic webhook correlation.
+```
+
+<ParamField path="Summary" type="section" required>
+  2-3 sentence overview of the research findings
+</ParamField>
+
+### Key Findings
+
+Bullet points with sources:
+
+```markdown
+## Key Findings
+
+- **Checkout Sessions vs Payment Intents**: Checkout Sessions are recommended 
+  for subscriptions because they handle the full flow including customer 
+  creation, subscription setup, and payment method attachment. Payment Intents 
+  are lower-level and require manual orchestration.
+  [Source: Stripe Docs](https://stripe.com/docs/payments/checkout)
+
+- **Webhook correlation**: Checkout Sessions automatically include session IDs 
+  in webhook events, making correlation easier than Payment Intents which 
+  require custom metadata.
+  [Source: Stripe Docs](https://stripe.com/docs/payments/checkout/fulfill-orders)
+
+- **Security best practices**: Always verify webhook signatures using 
+  `stripe.webhooks.constructEvent()` with the endpoint secret. Store the 
+  secret in environment variables, never in code.
+  [Source: Stripe Docs](https://stripe.com/docs/webhooks/signatures)
+```
+
+<ParamField path="Key Findings" type="section" required>
+  Bulleted list of important information, each with inline source citation
+</ParamField>
+
+### Sources
+
+Numbered list of all sources:
+
+```markdown
+## Sources
+
+1. Stripe Checkout Documentation - https://stripe.com/docs/payments/checkout
+2. Fulfilling Orders - https://stripe.com/docs/payments/checkout/fulfill-orders
+3. Webhook Signatures - https://stripe.com/docs/webhooks/signatures
+4. Stripe Node.js SDK - https://github.com/stripe/stripe-node
+```
+
+<ParamField path="Sources" type="section" required>
+  Numbered list of sources with titles and URLs
+</ParamField>
+
+## Example Usage
+
+### Research Request
+
+```typescript
+// Main agent delegates to researcher
+const researchReport = await launchAgent('researcher', {
+  task: 'Research Stripe webhook signature verification best practices'
+});
+
+// Researcher returns report with sources
+// Main agent uses findings to inform implementation
+```
+
+### Research Report
+
+```markdown
+## Summary
+
+Stripe webhook signature verification is critical for security to prevent 
+malicious webhook events. All production webhooks should verify signatures 
+using the endpoint secret and the `stripe.webhooks.constructEvent()` method. 
+Without verification, attackers could send fake events to manipulate 
+application state.
+
+## Key Findings
+
+- **Signature verification is mandatory for production**: Stripe signs all 
+  webhook events with an endpoint secret. Applications must verify the 
+  signature before processing events to ensure they came from Stripe.
+  [Source: Stripe Security Guide](https://stripe.com/docs/webhooks/signatures)
+
+- **Use constructEvent() method**: The Stripe SDK provides 
+  `stripe.webhooks.constructEvent(payload, signature, secret)` which handles 
+  signature verification and payload parsing in one call. This is safer than 
+  manual verification.
+  [Source: Stripe Node SDK Docs](https://github.com/stripe/stripe-node#webhook-signing)
+
+- **Endpoint secrets are per-endpoint**: Each webhook endpoint has its own 
+  signing secret. Store these in environment variables (STRIPE_WEBHOOK_SECRET) 
+  and rotate them if compromised.
+  [Source: Stripe Dashboard Guide](https://stripe.com/docs/webhooks/go-live)
+
+- **Return 200 before processing**: Respond with HTTP 200 immediately after 
+  signature verification, then process the event asynchronously. This prevents 
+  timeouts and ensures Stripe doesn't retry the webhook.
+  [Source: Webhook Best Practices](https://stripe.com/docs/webhooks/best-practices)
+
+- **Handle duplicate events**: Webhooks may be delivered multiple times. Use 
+  the event ID as an idempotency key to prevent duplicate processing.
+  [Source: Webhook Best Practices](https://stripe.com/docs/webhooks/best-practices)
+
+- **Test with Stripe CLI**: Use `stripe listen --forward-to localhost:3000/webhooks` 
+  to test webhooks locally. The CLI automatically handles signature generation.
+  [Source: Stripe CLI Docs](https://stripe.com/docs/stripe-cli/webhooks)
+
+## Sources
+
+1. Webhook Signatures - https://stripe.com/docs/webhooks/signatures
+2. Stripe Node.js SDK Webhook Signing - https://github.com/stripe/stripe-node#webhook-signing
+3. Webhooks Best Practices - https://stripe.com/docs/webhooks/best-practices
+4. Going Live with Webhooks - https://stripe.com/docs/webhooks/go-live
+5. Stripe CLI Webhooks - https://stripe.com/docs/stripe-cli/webhooks
+```
+
+## Best Practices
+
+<Tip>
+  Always cite sources inline. "Stripe recommends X" should be "Stripe recommends X [Source: URL]"
+</Tip>
+
+### Do
+
+- **Run multiple searches** to get breadth of information
+- **Cite every fact** with source URL
+- **Synthesize, don't copy** — combine information into coherent narrative
+- **Note conflicts** if sources disagree
+- **Be specific** — "recommended" vs "required" vs "optional"
+
+### Don't
+
+- **Speculate** beyond what sources say
+- **Assume** information is current (check dates)
+- **Copy large blocks** — summarize key points
+- **Omit sources** — every finding needs a citation
+- **Mix opinions** with facts — keep them separate
+
+## Guidelines
+
+### Factual Reporting
+
+<Note>
+  Be factual. Do not speculate beyond what the sources say. If results conflict, note it.
+</Note>
+
+Examples:
+
+**Good:**
+```markdown
+- Stripe recommends using Checkout Sessions for subscriptions 
+  [Source: Stripe Docs]
+```
+
+**Bad:**
+```markdown
+- Checkout Sessions are probably better for subscriptions
+```
+
+### Handling Conflicts
+
+When sources disagree:
+
+```markdown
+- **Conflicting information on session expiration**: The Stripe documentation 
+  states sessions expire after 24 hours [Source: Stripe Docs], but a Stack 
+  Overflow answer suggests they may expire sooner in some cases [Source: SO]. 
+  Recommend testing actual expiration in development.
+```
+
+### Date Sensitivity
+
+For rapidly-changing topics, note source dates:
+
+```markdown
+- As of March 2024, Stripe requires TLS 1.2+ for all API calls 
+  [Source: Stripe Security, updated March 2024]
+```
+
+## Integration with GSD
+
+GSD uses Researcher during several phases:
+
+### During Planning
+
+```markdown
+**Phase:** Researching
+**Task:** Research Stripe subscription best practices
+```
+
+Research report informs milestone and slice planning.
+
+### During Execution
+
+```markdown
+**Phase:** Executing
+**Task T03:** Implement webhook handler
+**Research needed:** Webhook signature verification
+```
+
+Research report guides implementation decisions.
+
+### During Problem Solving
+
+```markdown
+**Error:** Webhook signature verification failing
+**Research:** Common causes of signature verification failures
+```
+
+Research report helps debug issues.
+
+## Search Strategy
+
+### Query Formulation
+
+<Steps>
+  <Step title="Start broad">
+    "Stripe checkout sessions" or "webhook signature verification"
+  </Step>
+  <Step title="Add specificity">
+    "Stripe checkout sessions vs payment intents" or "webhook signature verification Node.js"
+  </Step>
+  <Step title="Target documentation">
+    "site:stripe.com webhook signatures" or "site:github.com stripe node"
+  </Step>
+</Steps>
+
+### Number of Searches
+
+- **Simple questions**: 2-3 searches
+- **Complex topics**: 4-6 searches
+- **Comparison tasks**: 3-4 searches (search each option separately)
+
+## Performance Characteristics
+
+<ResponseField name="Context usage" type="metric">
+  Researcher runs in isolated context. Report is typically 3-8k tokens.
+</ResponseField>
+
+<ResponseField name="Time" type="metric">
+  2-5 minutes depending on number of searches and synthesis complexity
+</ResponseField>
+
+<ResponseField name="Accuracy" type="metric">
+  High for well-documented topics. Limited by search result quality.
+</ResponseField>
+
+<ResponseField name="Currency" type="metric">
+  As current as web search results. Brave Search indexes recent content.
+</ResponseField>
+
+## Limitations
+
+<Warning>
+  Researcher cannot access:
+  - Content behind paywalls
+  - Private documentation
+  - Very recent changes (last few hours)
+  - Content requiring authentication
+</Warning>
+
+For these cases:
+- Use direct doc reading if you have access
+- Request user to provide documentation
+- Note the limitation in the report
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Scout Agent" icon="magnifying-glass" href="/api/agents/scout">
+    Codebase reconnaissance agent
+  </Card>
+  <Card title="Worker Agent" icon="wrench" href="/api/agents/worker">
+    General-purpose implementation agent
+  </Card>
+</CardGroup>

@@ -1,0 +1,270 @@
+---
+title: Architecture Deep Dive
+description: Internal architecture, bootstrapping process, and loader pattern
+---
+
+# Architecture Deep Dive
+
+This guide explores GSD 2's internal architecture, bootstrapping sequence, and the loader pattern that enables clean separation between the product layer and the upstream Pi SDK.
+
+## Bootstrapping Sequence
+
+### The Loader Pattern
+
+GSD uses a two-stage loader to inject configuration before Pi SDK initialization:
+
+```typescript src/loader.ts
+// MUST be set before any dynamic import of pi SDK fires
+process.env.PI_PACKAGE_DIR = pkgDir
+process.env.PI_SKIP_VERSION_CHECK = '1'
+process.title = 'gsd'
+
+// Dynamic import defers ESM evaluation
+await import('./cli.js')
+```
+
+The `PI_PACKAGE_DIR` environment variable points to a shim directory (`pkg/`) that contains:
+
+1. **GSD's piConfig** (`package.json`) for branding
+2. **Pi's theme assets** (`dist/modes/interactive/theme/`) without source code
+3. **No src/ directory** — triggers Pi's dist-path resolution
+
+This allows Pi's `config.js` to:
+- Read `piConfig.name → "gsd"` for branding throughout the SDK
+- Resolve theme assets via `dist/` without needing source files
+- Use `~/.gsd/` instead of `~/.pi/` for all configuration and state
+
+### Environment Variables
+
+GSD sets several critical environment variables during bootstrap:
+
+| Variable | Purpose | Set In |
+|----------|---------|--------|
+| `PI_PACKAGE_DIR` | Points Pi SDK to the `pkg/` shim directory | `src/loader.ts:17` |
+| `PI_SKIP_VERSION_CHECK` | Disables Pi's built-in update checker | `src/loader.ts:18` |
+| `GSD_CODING_AGENT_DIR` | Tells Pi's `getAgentDir()` to return `~/.gsd/agent/` | `src/loader.ts:42` |
+| `NODE_PATH` | Prepends GSD's `node_modules/` so extensions can resolve dependencies | `src/loader.ts:50-52` |
+| `GSD_VERSION` | Exposes package version to extensions | `src/loader.ts:63` |
+| `GSD_BIN_PATH` | Absolute path to loader for subagent spawning | `src/loader.ts:69` |
+| `GSD_WORKFLOW_PATH` | Path to bundled `GSD-WORKFLOW.md` | `src/loader.ts:74` |
+| `GSD_BUNDLED_EXTENSION_PATHS` | Colon-joined list of bundled extension entry points | `src/loader.ts:84-95` |
+
+### Module Resolution
+
+GSD forces Node to re-evaluate module search paths after setting `NODE_PATH`:
+
+```typescript src/loader.ts
+const gsdNodeModules = join(gsdRoot, 'node_modules')
+process.env.NODE_PATH = process.env.NODE_PATH
+  ? `${gsdNodeModules}:${process.env.NODE_PATH}`
+  : gsdNodeModules
+
+// Force Node to re-evaluate module search paths
+const { Module } = await import('module');
+(Module as any)._initPaths?.()
+```
+
+Without this, extensions loaded via jiti would fail to resolve dependencies like `playwright` because jiti resolves modules from Pi's location, not GSD's.
+
+## CLI Architecture
+
+The CLI (`src/cli.ts`) implements a minimal argument parser that detects three execution modes:
+
+### Interactive Mode
+
+The default mode when running `gsd` in a TTY:
+
+```typescript src/cli.ts
+const sessionManager = cliFlags.continue
+  ? SessionManager.continueRecent(cwd, projectSessionsDir)
+  : SessionManager.create(cwd, projectSessionsDir)
+
+const interactiveMode = new InteractiveMode(session)
+await interactiveMode.run()
+```
+
+**Session Storage:**
+- Per-directory session storage using the same encoding as Pi SDK
+- Path encoding: `~/.gsd/sessions/--{cwd}--/` where `/` and `\` are replaced with `-`
+- Legacy flat sessions are automatically migrated to per-directory subdirectories
+
+### Print Mode
+
+Single-shot execution without a TTY:
+
+```bash
+gsd --print "fix the build errors"
+gsd --mode text "run tests"
+```
+
+```typescript src/cli.ts
+if (mode === 'rpc') {
+  await runRpcMode(session)
+  process.exit(0)
+}
+
+await runPrintMode(session, {
+  mode,
+  messages: cliFlags.messages,
+})
+```
+
+### RPC Mode
+
+JSON-RPC protocol over stdin/stdout for programmatic integration:
+
+```bash
+gsd --mode rpc
+```
+
+Used by the subagent system for dispatching tasks to fresh processes.
+
+## Resource Loading
+
+GSD syncs bundled extensions to `~/.gsd/agent/` on every launch:
+
+```typescript src/resource-loader.ts
+export function initResources(agentDir: string): void {
+  mkdirSync(agentDir, { recursive: true })
+
+  // Always overwrite so updates land on next launch
+  const destExtensions = join(agentDir, 'extensions')
+  cpSync(bundledExtensionsDir, destExtensions, { 
+    recursive: true, 
+    force: true 
+  })
+}
+```
+
+**Why sync on every launch?**
+- Ensures `npm update -g @glittercowboy/gsd` takes effect immediately
+- User customizations go in uniquely-named subdirectories, not by editing synced files
+- The `~/.gsd/agent/extensions/` directory becomes the single source of truth
+
+**Extension Discovery:**
+
+```typescript src/resource-loader.ts
+export function discoverExtensionEntryPaths(extensionsDir: string): string[] {
+  const discovered: string[] = []
+  for (const entry of readdirSync(extensionsDir, { withFileTypes: true })) {
+    const entryPath = join(extensionsDir, entry.name)
+
+    // Check for package.json with pi.extensions manifest
+    if (entry.isDirectory()) {
+      discovered.push(...resolveExtensionEntries(entryPath))
+    }
+
+    // Direct .ts/.js file in extensions/
+    if (entry.isFile() && isExtensionFile(entry.name)) {
+      discovered.push(entryPath)
+    }
+  }
+  return discovered
+}
+```
+
+## Tool Bootstrap
+
+GSD provisions local managed binaries (`fd`, `rg`) before Pi SDK initialization:
+
+```typescript src/cli.ts
+// Pi's tool bootstrap can mis-detect already-installed fd/rg on some systems
+// because spawnSync(..., ["--version"]) returns EPERM despite a zero exit code.
+// Provision local managed binaries first so Pi sees them without probing PATH.
+ensureManagedTools(join(agentDir, 'bin'))
+```
+
+This prevents EPERM errors on locked-down systems where PATH probing fails.
+
+## Session Migration
+
+GSD automatically migrates legacy flat session files to per-directory storage:
+
+```typescript src/cli.ts
+if (existsSync(sessionsDir)) {
+  try {
+    const entries = readdirSync(sessionsDir)
+    const flatJsonl = entries.filter(f => f.endsWith('.jsonl'))
+    if (flatJsonl.length > 0) {
+      mkdirSync(projectSessionsDir, { recursive: true })
+      for (const file of flatJsonl) {
+        const src = join(sessionsDir, file)
+        const dst = join(projectSessionsDir, file)
+        if (!existsSync(dst)) {
+          renameSync(src, dst)
+        }
+      }
+    }
+  } catch {
+    // Non-fatal — don't block startup if migration fails
+  }
+}
+```
+
+Before per-directory scoping, all `.jsonl` session files lived directly in `~/.gsd/sessions/`. This migration moves them into the correct per-cwd subdirectory so `/resume` can find them.
+
+## Model Validation
+
+GSD validates the configured model on startup and auto-selects a fallback if the saved model no longer exists:
+
+```typescript src/cli.ts
+const configuredExists = configuredProvider && configuredModel &&
+  allModels.some((m) => m.provider === configuredProvider && m.id === configuredModel)
+const configuredAvailable = configuredProvider && configuredModel &&
+  availableModels.some((m) => m.provider === configuredProvider && m.id === configuredModel)
+
+if (!configuredModel || !configuredExists || !configuredAvailable) {
+  const preferred =
+    availableModels.find((m) => m.provider === 'openai' && m.id === 'gpt-5.4') ||
+    availableModels.find((m) => m.provider === 'openai') ||
+    availableModels.find((m) => m.provider === 'anthropic' && m.id === 'claude-opus-4-6') ||
+    availableModels.find((m) => m.provider === 'anthropic' && m.id.includes('opus')) ||
+    availableModels.find((m) => m.provider === 'anthropic') ||
+    availableModels[0]
+  if (preferred) {
+    settingsManager.setDefaultModelAndProvider(preferred.provider, preferred.id)
+  }
+}
+```
+
+This catches stale settings from prior installs (e.g., `grok-2` which no longer exists) and fresh installs with no settings.
+
+## Scoped Models Restoration
+
+GSD restores scoped models from settings on startup:
+
+```typescript src/cli.ts
+const enabledModelPatterns = settingsManager.getEnabledModels()
+if (enabledModelPatterns && enabledModelPatterns.length > 0) {
+  const scopedModels: Array<{ model: Model }> = []
+  for (const pattern of enabledModelPatterns) {
+    const slashIdx = pattern.indexOf('/')
+    if (slashIdx !== -1) {
+      const provider = pattern.substring(0, slashIdx)
+      const modelId = pattern.substring(slashIdx + 1)
+      const model = availableModels.find((m) => 
+        m.provider === provider && m.id === modelId
+      )
+      if (model) {
+        scopedModels.push({ model })
+      }
+    }
+  }
+  if (scopedModels.length > 0) {
+    session.setScopedModels(scopedModels)
+  }
+}
+```
+
+The upstream `InteractiveMode` reads `enabledModels` from settings when `/scoped-models` is opened, but doesn't apply them to the session at startup. Without this fix, Ctrl+P cycles all models instead of just the saved selection until the user re-runs `/scoped-models`.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="State Management" icon="diagram-project" href="/advanced/state-management">
+    Learn how GSD derives project state from disk files
+  </Card>
+  <Card title="Crash Recovery" icon="life-ring" href="/advanced/crash-recovery">
+    Understand crash detection and session forensics
+  </Card>
+</CardGroup>

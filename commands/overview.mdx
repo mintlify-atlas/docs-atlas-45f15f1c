@@ -1,0 +1,118 @@
+---
+title: Commands Overview
+description: Complete reference for all GSD 2 commands
+---
+
+GSD 2 provides a comprehensive set of commands for managing milestones, slices, and tasks. All commands follow a consistent pattern and integrate seamlessly with the workflow.
+
+## Primary Commands
+
+<CardGroup cols={2}>
+  <Card title="/gsd" icon="rocket" href="/commands/gsd">
+    Main entry point - routes to smart entry or status
+  </Card>
+  <Card title="/gsd auto" icon="play" href="/commands/gsd-auto">
+    Autonomous execution through milestones
+  </Card>
+  <Card title="/gsd status" icon="chart-line" href="/commands/gsd-status">
+    Dashboard showing progress and state
+  </Card>
+  <Card title="/gsd queue" icon="list" href="/commands/gsd-queue">
+    View and manage the milestone queue
+  </Card>
+</CardGroup>
+
+## Planning & Discussion
+
+<CardGroup cols={2}>
+  <Card title="/gsd discuss" icon="comments" href="/commands/gsd-discuss">
+    Interactive planning and refinement
+  </Card>
+  <Card title="/gsd prefs" icon="gear" href="/commands/gsd-prefs">
+    Configure global and project preferences
+  </Card>
+</CardGroup>
+
+## Maintenance & Migration
+
+<CardGroup cols={2}>
+  <Card title="/gsd doctor" icon="stethoscope" href="/commands/gsd-doctor">
+    Audit and fix state inconsistencies
+  </Card>
+  <Card title="/gsd migrate" icon="arrow-right" href="/commands/gsd-migrate">
+    Migrate from GSD 1.0 to GSD 2.0
+  </Card>
+</CardGroup>
+
+## Git Workflow
+
+<CardGroup cols={2}>
+  <Card title="/worktree" icon="code-branch" href="/commands/worktree">
+    Create isolated development environments
+  </Card>
+  <Card title="/voice" icon="microphone" href="/commands/voice">
+    Voice-to-text input (macOS only)
+  </Card>
+</CardGroup>
+
+## Command Structure
+
+Most GSD commands follow a consistent pattern:
+
+```bash
+/gsd <subcommand> [options] [scope]
+```
+
+### Scope Patterns
+
+Many commands accept scope arguments to target specific work units:
+
+- `M001` - Target a specific milestone
+- `M001/S02` - Target a specific slice
+- `M001/S02/T003` - Target a specific task
+
+### Common Options
+
+- `--verbose` - Enable detailed output (auto mode)
+- Global options are configured via `/gsd prefs`
+
+## Quick Reference
+
+| Command | Purpose | Example |
+|---------|---------|--------|
+| `/gsd` | Start step mode | `/gsd` |
+| `/gsd auto` | Start autonomous mode | `/gsd auto` |
+| `/gsd stop` | Stop auto/step mode | `/gsd stop` |
+| `/gsd status` | View dashboard | `/gsd status` |
+| `/gsd queue` | Manage milestones | `/gsd queue` |
+| `/gsd discuss` | Plan interactively | `/gsd discuss` |
+| `/gsd prefs` | Edit preferences | `/gsd prefs global` |
+| `/gsd doctor` | Audit state | `/gsd doctor audit M001` |
+| `/gsd migrate` | Migrate from v1 | `/gsd migrate ~/project/.planning` |
+| `/worktree` | Create worktree | `/worktree feature` |
+| `/voice` | Toggle voice input | `/voice` |
+
+## State Files
+
+GSD commands read and write structured files in `.gsd/`:
+
+- **PROJECT.md** - Project overview and goals
+- **REQUIREMENTS.md** - User requirements registry
+- **DECISIONS.md** - Architectural decisions
+- **STATE.md** - Current execution state (auto-generated)
+- **milestones/M###/** - Milestone artifacts
+- **milestones/M###/S##/** - Slice artifacts
+- **milestones/M###/S##/tasks/** - Task artifacts
+
+See [Architecture](/advanced/state-management) for details on the state machine and file structure.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Getting Started" icon="play" href="/introduction">
+    Learn the basic workflow
+  </Card>
+  <Card title="Workflow Guide" icon="book" href="/concepts/workflow">
+    Understand the execution model
+  </Card>
+</CardGroup>

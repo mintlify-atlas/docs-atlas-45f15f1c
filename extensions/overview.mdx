@@ -1,0 +1,115 @@
+---
+title: Extensions & Tools Overview
+description: Extend GSD 2's capabilities with powerful built-in extensions
+---
+
+GSD 2 includes a rich set of built-in extensions that enhance the agent's capabilities beyond basic coding tasks. These extensions provide specialized tools for browser automation, web search, documentation lookup, background processes, voice input, macOS automation, and external integrations.
+
+## Available Extensions
+
+<CardGroup cols={2}>
+  <Card title="Browser Tools" icon="browser" href="/extensions/browser-tools">
+    Automate and test web UIs with Playwright-powered browser control
+  </Card>
+  
+  <Card title="Search the Web" icon="magnifying-glass" href="/extensions/search-web">
+    Ground the agent in real-world information with web search and page extraction
+  </Card>
+  
+  <Card title="Context7" icon="book" href="/extensions/context7">
+    Access up-to-date library documentation and API references
+  </Card>
+  
+  <Card title="Background Shell" icon="terminal" href="/extensions/background-shell">
+    Manage long-running processes with intelligent lifecycle tracking
+  </Card>
+  
+  <Card title="Subagent" icon="users" href="/extensions/subagent">
+    Delegate tasks to specialized agents with isolated context windows
+  </Card>
+  
+  <Card title="Mac Tools" icon="apple" href="/extensions/mac-tools">
+    Automate native macOS applications via Accessibility APIs
+  </Card>
+  
+  <Card title="Voice Input" icon="microphone" href="/extensions/voice">
+    Control GSD 2 with voice transcription (macOS only)
+  </Card>
+  
+  <Card title="MCPorter" icon="plug" href="/extensions/mcporter">
+    Connect to MCP servers for external tool integrations
+  </Card>
+</CardGroup>
+
+## How Extensions Work
+
+Extensions are packaged as TypeScript modules that register tools, commands, and hooks with the GSD 2 runtime. They provide:
+
+- **Tools**: Functions the agent can call during task execution
+- **Commands**: Slash commands users can invoke in the CLI
+- **Shortcuts**: Keyboard shortcuts for quick actions
+- **Hooks**: Event handlers for session lifecycle events
+
+## Extension Architecture
+
+All built-in extensions follow a consistent pattern:
+
+```typescript
+import type { ExtensionAPI } from "@gsd/pi-coding-agent";
+
+export default function (pi: ExtensionAPI) {
+  // Register tools
+  pi.registerTool({
+    name: "tool_name",
+    description: "What the tool does",
+    parameters: Type.Object({ /* ... */ }),
+    execute: async (toolCallId, params, signal, onUpdate, ctx) => {
+      // Tool implementation
+      return {
+        content: [{ type: "text", text: "Result" }],
+        details: { /* structured metadata */ }
+      };
+    }
+  });
+
+  // Register commands
+  pi.registerCommand("command", {
+    description: "Command description",
+    handler: async (args, ctx) => {
+      // Command implementation
+    }
+  });
+
+  // Register lifecycle hooks
+  pi.on("session_start", async (event, ctx) => {
+    // Hook implementation
+  });
+}
+```
+
+## Environment Variables
+
+Some extensions require API keys or configuration:
+
+| Extension | Variable | Required | Purpose |
+|-----------|----------|----------|----------|
+| Search the Web | `BRAVE_API_KEY` | Optional* | Brave Search API access |
+| Search the Web | `JINA_API_KEY` | Optional | Higher rate limits for page extraction |
+| Context7 | `CONTEXT7_API_KEY` | Optional | Higher rate limits for docs |
+| Browser Tools | `BROWSER_PATH` | Optional | Custom browser executable |
+
+<Note>
+  *`BRAVE_API_KEY` is optional when using Anthropic models, which have built-in web search.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Browser Automation" icon="browser" href="/extensions/browser-tools">
+    Learn how to automate browser testing and UI verification
+  </Card>
+  
+  <Card title="Background Processes" icon="terminal" href="/extensions/background-shell">
+    Master process management for servers and build tools
+  </Card>
+</CardGroup>

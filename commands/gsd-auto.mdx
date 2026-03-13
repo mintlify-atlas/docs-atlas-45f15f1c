@@ -1,0 +1,408 @@
+---
+title: /gsd auto
+description: Autonomous mode - continuous execution through milestones
+---
+
+The `/gsd auto` command starts **autonomous mode**, where GSD continuously executes work units without user intervention until the current milestone is complete.
+
+## Syntax
+
+```bash
+/gsd auto [--verbose]
+```
+
+## Options
+
+- `--verbose` - Enable detailed execution logs and prompt display
+
+## Behavior
+
+Auto mode implements a fresh-session-per-unit model:
+
+1. **Derives current state** from `.gsd/` files
+2. **Determines next unit** based on phase (plan-slice, execute-task, complete-slice, etc.)
+3. **Creates fresh session** via `ctx.newSession()`
+4. **Injects focused prompt** telling the LLM exactly what to do
+5. **Waits for agent_end** event
+6. **Validates artifacts** (plan file, summary, checkboxes)
+7. **Repeats** until milestone complete
+
+## Unit Types
+
+Auto mode dispatches different unit types based on project phase:
+
+| Unit Type | Phase | Purpose |
+|-----------|-------|--------|
+| `research-milestone` | pre-planning | Scout the landscape before roadmap |
+| `plan-milestone` | pre-planning | Create ROADMAP.md from CONTEXT.md |
+| `research-slice` | planning | Investigate before slice plan |
+| `plan-slice` | planning | Create slice PLAN.md with tasks |
+| `execute-task` | executing | Complete one task |
+| `complete-slice` | summarizing | Write slice SUMMARY.md and UAT |
+| `replan-slice` | replanning-slice | Adjust plan after blocker |
+| `reassess-roadmap` | (between slices) | Update roadmap, reorder slices |
+| `run-uat` | (after complete-slice) | Execute user acceptance tests |
+| `complete-milestone` | completing-milestone | Write milestone SUMMARY.md |
+
+See [State Machine](/advanced/state-management) for the full phase diagram.
+
+## Progress Widget
+
+Auto mode displays a live progress widget:
+
+```
+╭──────────────────────────────────────────────────────╮
+│ ● GSD  AUTO                                     5m2s │
+│                                                      │
+│ M001: Build user authentication system              │
+│ S02: Implement OAuth2 flow                          │
+│                                                      │
+│ ▸ executing  T003: Add token refresh logic  EXECUTE │
+│                                                      │
+│ ████████████░░░░░░░░  2/3 slices  ·  task 3/5       │
+│                                                      │
+│ → then continue S02                                  │
+│                                                      │
+│ ~/project (gsd/M001/S02)                             │
+│ ↑8.2k ↓1.4k R12k W3k $0.156  68.2%/200k  claude-4.5 │
+│ esc pause                   Ctrl+Alt+G dashboard    │
+╰──────────────────────────────────────────────────────╯
+```
+
+**Widget sections:**
+1. Header with mode and elapsed time
+2. Current milestone and slice
+3. Active action with phase badge
+4. Progress bar (slice and task level)
+5. Next planned action
+6. Footer with pwd, tokens, cost, context usage, model
+7. Keyboard hints
+
+## Keyboard Controls
+
+- **Escape** - Pause auto mode (preserves state, allows interaction)
+- **Ctrl+Alt+G** - Open dashboard overlay
+
+## Crash Recovery
+
+Auto mode includes robust crash recovery:
+
+### Lock File
+
+When a unit starts, GSD writes `.gsd/.lock`:
+
+```json
+{
+  "unitType": "execute-task",
+  "unitId": "M001/S02/T003",
+  "sessionFile": "/path/to/session.jsonl",
+  "timestamp": "2026-03-13T10:23:45.123Z"
+}
+```
+
+### Recovery on Restart
+
+If the process crashes, the next `/gsd auto` detects the stale lock:
+
+```typescript
+const crashLock = readCrashLock(base);
+if (crashLock) {
+  const recovery = synthesizeCrashRecovery(
+    base, crashLock.unitType, crashLock.unitId,
+    crashLock.sessionFile, activityDir,
+  );
+  if (recovery && recovery.trace.toolCallCount > 0) {
+    pendingCrashRecovery = recovery.prompt;
+    ctx.ui.notify(
+      `Recovered ${recovery.trace.toolCallCount} tool calls from crashed session. Resuming with full context.`,
+      "warning",
+    );
+  }
+}
+```
+
+**Recovery behavior:**
+1. Reads session JSONL (incremental writes survive crashes)
+2. Extracts all tool calls and results
+3. Reconstructs unit context
+4. Injects recovery prompt with full history
+5. Continues from where it left off
+
+See `session-forensics.ts` for implementation.
+
+## Auto-Commit
+
+Auto mode automatically commits changes:
+
+### Between Units
+
+After each unit completes:
+
+```typescript
+const commitMsg = autoCommitCurrentBranch(basePath, currentUnit.type, currentUnit.id);
+if (commitMsg) {
+  ctx.ui.notify(`Auto-committed uncommitted changes.`, "info");
+}
+```
+
+### Branch Management
+
+GSD uses branch-per-slice:
+
+- **Main branch** (e.g., `main`) - Contains completed slices
+- **Slice branches** (e.g., `gsd/M001/S02`) - Work in progress
+
+Auto mode:
+1. Creates slice branch when planning starts
+2. Commits task work to slice branch
+3. Merges to main when slice completes
+4. Switches back to main for next slice
+
+See [Git Service](/concepts/git-strategy) for details.
+
+## Doctor Post-Hook
+
+After each unit, auto mode runs doctor to fix bookkeeping:
+
+```typescript
+try {
+  const scopeParts = currentUnit.id.split("/").slice(0, 2);
+  const doctorScope = scopeParts.join("/");
+  const report = await runGSDDoctor(basePath, { 
+    fix: true, 
+    scope: doctorScope, 
+    fixLevel: "task" 
+  });
+  if (report.fixesApplied.length > 0) {
+    ctx.ui.notify(`Post-hook: applied ${report.fixesApplied.length} fix(es).`, "info");
+  }
+} catch { /* non-fatal */ }
+```
+
+**Fix level: task**
+- Marks task checkboxes when summaries exist
+- Does NOT create slice summaries (reserved for complete-slice unit)
+- Does NOT mark slices done (reserved for complete-slice unit)
+
+See [/gsd doctor](/commands/gsd-doctor) for details.
+
+## Budget Ceiling
+
+Configure a cost ceiling in preferences:
+
+```markdown
+budget_ceiling: 5.00
+```
+
+Auto mode checks before each unit:
+
+```typescript
+const budgetCeiling = prefs?.budget_ceiling;
+if (budgetCeiling !== undefined) {
+  const currentLedger = getLedger();
+  const totalCost = currentLedger ? getProjectTotals(currentLedger.units).cost : 0;
+  if (totalCost >= budgetCeiling) {
+    ctx.ui.notify(
+      `Budget ceiling ${formatCost(budgetCeiling)} reached (spent ${formatCost(totalCost)}). Pausing auto-mode.`,
+      "warning",
+    );
+    await pauseAuto(ctx, pi);
+    return;
+  }
+}
+```
+
+## Stuck Detection
+
+Auto mode detects infinite loops:
+
+```typescript
+const MAX_UNIT_DISPATCHES = 3;
+const unitDispatchCount = new Map<string, number>();
+
+const dispatchKey = `${unitType}/${unitId}`;
+const prevCount = unitDispatchCount.get(dispatchKey) ?? 0;
+if (prevCount >= MAX_UNIT_DISPATCHES) {
+  const expected = diagnoseExpectedArtifact(unitType, unitId, basePath);
+  await stopAuto(ctx, pi);
+  ctx.ui.notify(
+    `Loop detected: ${unitType} ${unitId} dispatched ${prevCount + 1} times total. Expected artifact not found.\n   Expected: ${expected}`,
+    "error",
+  );
+  return;
+}
+```
+
+**Prevents:**
+- A→B→A→B oscillation
+- LLM not writing expected files
+- Malformed state causing re-dispatch
+
+## Idempotency
+
+Auto mode skips already-completed units:
+
+```typescript
+const idempotencyKey = `${unitType}/${unitId}`;
+if (completedKeySet.has(idempotencyKey)) {
+  const artifactExists = verifyExpectedArtifact(unitType, unitId, basePath);
+  if (artifactExists) {
+    ctx.ui.notify(
+      `Skipping ${unitType} ${unitId} — already completed in a prior session. Advancing.`,
+      "info",
+    );
+    await dispatchNextUnit(ctx, pi);
+    return;
+  }
+}
+```
+
+Completed units are persisted to `.gsd/completed-units.json`:
+
+```json
+[
+  "plan-slice/M001/S01",
+  "execute-task/M001/S01/T001",
+  "execute-task/M001/S01/T002",
+  "complete-slice/M001/S01"
+]
+```
+
+## Metrics
+
+Auto mode tracks cost and token usage:
+
+```typescript
+initMetrics(base); // Load ledger from .gsd/metrics.json
+
+// After each unit
+snapshotUnitMetrics(ctx, currentUnit.type, currentUnit.id, currentUnit.startedAt, modelId);
+
+// Final summary
+const totals = getProjectTotals(ledger.units);
+ctx.ui.notify(
+  `Auto-mode stopped. Session: ${formatCost(totals.cost)} · ${formatTokenCount(totals.tokens.total)} tokens · ${ledger.units.length} units`,
+  "info",
+);
+```
+
+See [Metrics](/advanced/dashboard) for details.
+
+## Example Session
+
+```bash
+$ /gsd auto
+Auto-mode started. Will loop through 2 milestones.
+Secrets collected: 2 applied, 0 skipped, 1 already set.
+
+# ... progress widget appears ...
+
+# After M001/S01 completes
+Merged gsd/M001/S01 → main.
+
+# After M001 completes
+Milestone M001 complete. Advancing to M002: Implement API endpoints.
+
+# Press Escape
+Auto-mode paused (Escape). Type to interact, or /gsd auto to resume.
+
+# Resume
+$ /gsd auto
+Auto-mode resumed.
+Resume: applied 2 fix(es) to state.
+
+# Finish
+Auto-mode stopped. Session: $1.234 · 45.2k tokens · 23 units
+```
+
+## Pausing vs Stopping
+
+### Pause (Escape)
+
+- Preserves state in memory
+- Allows user interaction
+- Resume with `/gsd auto` continues exactly where it left off
+- Use when: debugging, manual intervention, reviewing output
+
+### Stop (/gsd stop)
+
+- Clears all state
+- Resets metrics
+- Shows final cost summary
+- Next `/gsd auto` starts fresh from disk state
+- Use when: done for the day, switching tasks
+
+## Best Practices
+
+<Tip>
+**Monitor context usage.** The progress widget shows context percentage. If it exceeds 70%, consider splitting large slices or using a larger context model.
+</Tip>
+
+<Warning>
+**Don't interrupt during slice completion.** Let complete-slice units finish writing summaries and merging to main. Interrupting can leave orphaned branches.
+</Warning>
+
+<Info>
+**Use --verbose sparingly.** Verbose mode shows full prompts, useful for debugging but clutters the interface. Turn it off for normal work.
+</Info>
+
+## Troubleshooting
+
+### Auto mode won't start
+
+**Symptom:** `/gsd auto` exits immediately or shows "Blocked" message
+
+**Solution:**
+```bash
+# Check state
+/gsd status
+
+# Run doctor
+/gsd doctor audit
+
+# Fix issues
+/gsd doctor fix
+```
+
+### Stuck in a loop
+
+**Symptom:** Same unit dispatches repeatedly
+
+**Solution:**
+1. Auto mode will stop after 3 attempts with diagnostic message
+2. Check expected artifact: `ls .gsd/milestones/M001/S02/`
+3. Manually create missing file or fix malformed content
+4. Resume: `/gsd auto`
+
+### Merge conflicts
+
+**Symptom:** "Merge failed" when completing slice
+
+**Solution:**
+```bash
+# Auto mode stops and shows conflict message
+# Resolve manually
+git status
+git merge --continue
+
+# Resume
+/gsd auto
+```
+
+## Related Commands
+
+- [/gsd](/commands/gsd) - Main command and step mode
+- [/gsd stop](/commands/gsd#stop) - Stop auto mode
+- [/gsd status](/commands/gsd-status) - View progress
+- [/gsd doctor](/commands/gsd-doctor) - Audit state
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="State Machine" icon="diagram-project" href="/advanced/state-management">
+    Understand phases and transitions
+  </Card>
+  <Card title="Unit Types" icon="box" href="/concepts/milestones-slices-tasks">
+    Learn about each unit type
+  </Card>
+</CardGroup>

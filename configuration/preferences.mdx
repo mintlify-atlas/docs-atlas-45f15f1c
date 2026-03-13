@@ -1,0 +1,156 @@
+---
+title: Preferences
+description: Configure GSD behavior with preferences.md files
+---
+
+GSD preferences let you control models, timeouts, skills, and other behavior. Preferences are stored in YAML frontmatter inside `preferences.md` files.
+
+## Preference Files
+
+GSD reads preferences from two locations:
+
+<CardGroup cols={2}>
+  <Card title="Global" icon="globe">
+    `~/.gsd/preferences.md`
+    
+    Applies to all projects
+  </Card>
+  <Card title="Project" icon="folder">
+    `.gsd/preferences.md`
+    
+    Project-specific overrides
+  </Card>
+</CardGroup>
+
+Project preferences override global preferences. If both exist, GSD merges them with project values taking precedence.
+
+## File Format
+
+Preferences use YAML frontmatter wrapped in `---` delimiters:
+
+```yaml
+---
+version: 1
+models:
+  research: claude-sonnet-4-6
+  planning: claude-opus-4-6
+  execution: claude-sonnet-4-6
+  completion: claude-sonnet-4-6
+skill_discovery: suggest
+auto_supervisor:
+  soft_timeout_minutes: 20
+  idle_timeout_minutes: 10
+  hard_timeout_minutes: 30
+budget_ceiling: 50.00
+---
+```
+
+## Managing Preferences
+
+Use the `/gsd prefs` command to open and edit your preferences:
+
+```bash
+/gsd prefs
+```
+
+This opens your project preferences file (or creates one if it doesn't exist) in your configured editor.
+
+## Available Settings
+
+### Core Configuration
+
+| Setting | Type | Description |
+|---------|------|-------------|
+| `version` | number | Schema version (always `1`) |
+| `models` | object | Per-phase model selection (see [Models](/configuration/models)) |
+| `budget_ceiling` | number | USD spending limit (see [Budget](/configuration/budget)) |
+| `auto_supervisor` | object | Timeout configuration (see [Timeouts](/configuration/timeouts)) |
+
+### Skill Management
+
+| Setting | Type | Description |
+|---------|------|-------------|
+| `skill_discovery` | string | How GSD discovers skills: `auto`, `suggest`, `off` |
+| `always_use_skills` | array | Skills to always load when relevant |
+| `prefer_skills` | array | Skills to prefer over alternatives |
+| `avoid_skills` | array | Skills to avoid unless necessary |
+| `skill_rules` | array | Conditional skill routing rules |
+
+### Other Options
+
+| Setting | Type | Description |
+|---------|------|-------------|
+| `uat_dispatch` | boolean | Automatically run UAT scripts after slice completion |
+| `custom_instructions` | array | Additional instructions for all GSD work |
+| `remote_questions` | object | Slack/Discord configuration for questions during auto mode |
+| `git` | object | Git preferences (auto-push, snapshots, etc.) |
+
+## Example: Skill Configuration
+
+```yaml
+---
+version: 1
+skill_discovery: suggest
+always_use_skills:
+  - doc-author
+  - mintlify
+prefer_skills:
+  - typescript-expert
+avoid_skills:
+  - legacy-framework
+skill_rules:
+  - when: working on API documentation
+    use:
+      - doc-author
+      - api-design
+  - when: frontend work
+    prefer:
+      - react-patterns
+    avoid:
+      - vue-specific
+---
+```
+
+## Skill Discovery Modes
+
+<Card title="auto" icon="wand-magic-sparkles">
+  GSD automatically installs and loads relevant skills during research phase
+</Card>
+
+<Card title="suggest" icon="lightbulb">
+  GSD identifies relevant skills but asks before installing (default)
+</Card>
+
+<Card title="off" icon="circle-xmark">
+  No automatic skill discovery
+</Card>
+
+## Preference Validation
+
+GSD validates preferences on load. Invalid values are ignored with warnings:
+
+- `version` must be `1`
+- `skill_discovery` must be `auto`, `suggest`, or `off`
+- `budget_ceiling` must be a finite number
+- Skill references must resolve to existing skill directories
+
+## Legacy Preferences
+
+Older GSD installations used `~/.pi/agent/gsd-preferences.md`. GSD automatically reads this file if `~/.gsd/preferences.md` doesn't exist.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Model Selection" icon="brain" href="/configuration/models">
+    Configure per-phase model selection
+  </Card>
+  <Card title="Budget Limits" icon="dollar-sign" href="/configuration/budget">
+    Set spending ceilings
+  </Card>
+  <Card title="Timeouts" icon="clock" href="/configuration/timeouts">
+    Configure auto-mode supervision
+  </Card>
+  <Card title="Providers" icon="plug" href="/configuration/providers">
+    Set up LLM providers
+  </Card>
+</CardGroup>

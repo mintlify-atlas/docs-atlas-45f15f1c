@@ -1,0 +1,196 @@
+---
+title: Model Selection
+description: Configure different models for different workflow phases
+---
+
+GSD supports per-phase model selection. Use expensive models where quality matters (planning) and cheaper models where speed matters (research, completion).
+
+## Phase-Specific Models
+
+Configure models in your [preferences file](/configuration/preferences) under the `models` key:
+
+```yaml
+---
+version: 1
+models:
+  research: claude-sonnet-4-6
+  planning: claude-opus-4-6
+  execution: claude-sonnet-4-6
+  completion: claude-sonnet-4-6
+---
+```
+
+## Workflow Phases
+
+<CardGroup cols={2}>
+  <Card title="Research" icon="magnifying-glass">
+    Codebase and ecosystem reconnaissance
+    
+    **Units:** `research-milestone`, `research-slice`
+    
+    **Recommendation:** Fast, capable model (Sonnet, GPT-4o)
+  </Card>
+  
+  <Card title="Planning" icon="map">
+    Slice decomposition and task planning
+    
+    **Units:** `plan-milestone`, `plan-slice`, `replan-slice`
+    
+    **Recommendation:** Best model available (Opus, GPT-5)
+  </Card>
+  
+  <Card title="Execution" icon="code">
+    Task implementation and verification
+    
+    **Units:** `execute-task`
+    
+    **Recommendation:** Balanced model (Sonnet, GPT-4o)
+  </Card>
+  
+  <Card title="Completion" icon="check-circle">
+    Summaries, UAT scripts, merges
+    
+    **Units:** `complete-slice`, `run-uat`
+    
+    **Recommendation:** Fast model (Sonnet, GPT-4o-mini)
+  </Card>
+</CardGroup>
+
+## Model Format
+
+Model references use the model ID from your provider:
+
+### Anthropic
+
+```yaml
+models:
+  planning: claude-opus-4-6
+  execution: claude-sonnet-4-6
+```
+
+### OpenAI
+
+```yaml
+models:
+  planning: gpt-5.4
+  execution: gpt-4o
+```
+
+### Google Gemini
+
+```yaml
+models:
+  planning: gemini-3-exp
+  execution: gemini-2.5-pro
+```
+
+### OpenRouter
+
+For OpenRouter models, use the full path format:
+
+```yaml
+models:
+  research: openrouter/deepseek/deepseek-r1
+  planning: claude-opus-4-6
+  execution: openrouter/z-ai/glm-5
+  completion: openrouter/minimax/minimax-m2.5
+```
+
+## Fallback Models
+
+You can configure fallback models for each phase. GSD tries fallbacks in order if the primary model fails (rate limits, credits exhausted, etc.):
+
+```yaml
+models:
+  research:
+    model: openrouter/deepseek/deepseek-r1
+    fallbacks:
+      - openrouter/minimax/minimax-m2.5
+  planning:
+    model: claude-opus-4-6
+    fallbacks:
+      - openrouter/z-ai/glm-5
+      - openrouter/moonshotai/kimi-k2.5
+  execution:
+    model: openrouter/z-ai/glm-5
+    fallbacks:
+      - openrouter/minimax/minimax-m2.5
+  completion: openrouter/minimax/minimax-m2.5
+```
+
+<Note>
+Fallbacks are optional. If you specify a simple string (e.g., `planning: claude-opus-4-6`), GSD uses that model with no fallbacks.
+</Note>
+
+## Cost-Optimized Example
+
+Use cheap models for fast phases and expensive models only where quality matters:
+
+```yaml
+models:
+  research: openrouter/deepseek/deepseek-r1  # $0.28/$0.42 per 1M tokens
+  planning:
+    model: claude-opus-4-6                   # $5/$25 — best for architecture
+    fallbacks:
+      - openrouter/z-ai/glm-5                # $1/$3.20 — strong alternative
+  execution: openrouter/minimax/minimax-m2.5 # $0.30/$1.20 — cheapest quality
+  completion: openrouter/minimax/minimax-m2.5
+```
+
+## Model Availability
+
+GSD only uses models from providers you've authenticated. See [Providers](/configuration/providers) for authentication setup.
+
+To list available models:
+
+```bash
+/model
+```
+
+This shows all models from your configured providers.
+
+## Default Model
+
+If you don't specify a phase model in preferences, GSD uses your default model (configured via `/model` command or auto-selected during onboarding).
+
+## Switching Models Mid-Session
+
+To temporarily override the model for the current session:
+
+```bash
+/model
+```
+
+Select a different model from the list. This doesn't change your preferences — it only affects the current session.
+
+## Model Cost Tracking
+
+GSD tracks cost per model. Use the dashboard to see breakdown:
+
+```bash
+/gsd status
+```
+
+Or press `Ctrl+Alt+G` to open the dashboard overlay.
+
+## Validation
+
+GSD validates model references on startup:
+
+- Warns if a configured model doesn't exist in the registry
+- Falls back to default model if configured model is unavailable
+- Shows model name and provider in status messages during auto mode
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Provider Setup" icon="plug" href="/configuration/providers">
+    Configure LLM provider authentication
+  </Card>
+  <Card title="Budget Limits" icon="dollar-sign" href="/configuration/budget">
+    Set spending ceilings per model
+  </Card>
+  <Card title="Preferences" icon="sliders" href="/configuration/preferences">
+    Learn about all preference options
+  </Card>
+</CardGroup>

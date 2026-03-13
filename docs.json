@@ -1,122 +1,142 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "GSD 2",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#848c8e",
+    "light": "#11161e",
+    "dark": "#cfd0d2"
   },
-  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "https://media.brand.dev/5ffd6ce4-2434-4b4b-920a-f8cacac8b48b.svg",
+    "dark": "https://media.brand.dev/5ffd6ce4-2434-4b4b-920a-f8cacac8b48b.svg"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/gsd-build/gsd-2"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/gsd-build/gsd-2"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "installation",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/architecture",
+              "concepts/workflow",
+              "concepts/milestones-slices-tasks",
+              "concepts/context-engineering",
+              "concepts/git-strategy"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Usage Guide",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "guide/step-mode",
+              "guide/auto-mode",
+              "guide/two-terminal-workflow",
+              "guide/verification"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Commands",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "commands/overview",
+              "commands/gsd",
+              "commands/gsd-auto",
+              "commands/gsd-discuss",
+              "commands/gsd-status",
+              "commands/gsd-queue",
+              "commands/gsd-prefs",
+              "commands/gsd-migrate",
+              "commands/gsd-doctor",
+              "commands/worktree",
+              "commands/voice"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/preferences",
+              "configuration/models",
+              "configuration/providers",
+              "configuration/budget",
+              "configuration/timeouts"
+            ]
+          },
+          {
+            "group": "Extensions & Tools",
+            "pages": [
+              "extensions/overview",
+              "extensions/browser-tools",
+              "extensions/search-web",
+              "extensions/context7",
+              "extensions/background-shell",
+              "extensions/subagent",
+              "extensions/mac-tools",
+              "extensions/voice",
+              "extensions/mcporter"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/architecture-deep-dive",
+              "advanced/state-management",
+              "advanced/crash-recovery",
+              "advanced/skill-discovery",
+              "advanced/dashboard"
+            ]
+          },
+          {
+            "group": "Migration",
+            "pages": [
+              "migration/from-v1",
+              "migration/troubleshooting"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "File Structure",
             "pages": [
-              "api-reference/introduction"
+              "api/gsd-directory",
+              "api/project-files",
+              "api/state-files",
+              "api/roadmap-format",
+              "api/plan-format",
+              "api/summary-format"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Agents",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/agents/scout",
+              "api/agents/researcher",
+              "api/agents/worker"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

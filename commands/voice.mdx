@@ -1,0 +1,432 @@
+---
+title: /voice
+description: Voice-to-text input for hands-free coding (macOS only)
+---
+
+The `/voice` command enables voice-to-text transcription using macOS Speech framework. Speak naturally and see your words appear in the editor.
+
+## Platform Support
+
+<Warning>
+**macOS only.** The voice command requires macOS 10.15+ with Speech framework and Xcode command-line tools. It will not work on Linux or Windows.
+</Warning>
+
+## Syntax
+
+```bash
+/voice              # Toggle voice mode on/off
+```
+
+**Shortcut:** `Ctrl+Alt+V`
+
+## Quick Start
+
+```bash
+# Start voice mode
+/voice
+
+# Or press: Ctrl+Alt+V
+
+# Speak into your microphone
+"Create a new function that fetches user data from the API"
+
+# Text appears in editor as you speak
+# Press Enter to send
+# Or press Escape to cancel
+```
+
+## How It Works
+
+1. **Activate** - Run `/voice` or press `Ctrl+Alt+V`
+2. **Speak** - Voice transcription starts immediately
+3. **See** - Text appears in editor in real-time
+4. **Send** - Press Enter to send message
+5. **Cancel** - Press Escape to discard and exit
+
+## Visual Feedback
+
+When active, the footer shows a pulsing indicator:
+
+```
+╭──────────────────────────────────────────────────────╮
+│ ~/project (main)                        ● transcribing │
+│ ↑8.2k ↓1.4k $0.156  68.2%/200k       claude-4.5-sonnet │
+╰──────────────────────────────────────────────────────╯
+```
+
+The red dot pulses every 500ms to indicate active transcription.
+
+## First-Time Setup
+
+### Compile Speech Recognizer
+
+On first use, GSD compiles a Swift binary:
+
+```bash
+/voice
+
+# Compiling speech recognizer...
+# (takes ~10 seconds)
+
+# Future invocations use cached binary
+```
+
+**Requirements:**
+- Xcode command-line tools: `xcode-select --install`
+- macOS 10.15+ (Catalina or later)
+
+### Microphone Permission
+
+macOS will prompt for microphone access:
+
+```
+┌───────────────────────────────────┐
+│ "Terminal" wants to access      │
+│ your microphone.               │
+│                                │
+│   [Don't Allow]    [   OK   ]  │
+└───────────────────────────────────┘
+```
+
+Click **OK** to grant permission.
+
+**If denied:**
+```bash
+# Grant permission manually:
+# System Settings → Privacy & Security → Microphone
+# Enable: Terminal (or your terminal app)
+```
+
+## Example Session
+
+```bash
+$ /voice
+
+# Footer shows: ● transcribing
+
+# Speak:
+"I need to add error handling to the API client. 
+Wrap all fetch calls in try-catch blocks and 
+log errors to the console with timestamps."
+
+# Editor shows (real-time):
+# I need to add error handling to the API client. Wrap all
+# fetch calls in try-catch blocks and log errors to the
+# console with timestamps.
+
+# Press Enter to send
+# Agent receives message and responds
+
+Agent: I'll add comprehensive error handling to the API client.
+
+# Voice mode exits automatically after sending
+```
+
+## Technical Details
+
+### Speech Recognizer Binary
+
+The voice command uses a compiled Swift binary:
+
+**Source:** `speech-recognizer.swift`
+
+```swift
+import Speech
+import AVFoundation
+
+class SpeechRecognizer {
+  private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+  private let audioEngine = AVAudioEngine()
+  private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+  private var recognitionTask: SFSpeechRecognitionTask?
+  
+  func start() {
+    let inputNode = audioEngine.inputNode
+    let recordingFormat = inputNode.outputFormat(forBus: 0)
+    
+    recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
+    guard let recognitionRequest = recognitionRequest else { return }
+    
+    recognitionRequest.shouldReportPartialResults = true
+    
+    recognitionTask = speechRecognizer?.recognitionTask(with: recognitionRequest) { result, error in
+      if let result = result {
+        if result.isFinal {
+          print("FINAL:\(result.bestTranscription.formattedString)")
+        } else {
+          print("PARTIAL:\(result.bestTranscription.formattedString)")
+        }
+      }
+      
+      if error != nil {
+        print("ERROR:\(error!.localizedDescription)")
+        self.stop()
+      }
+    }
+    
+    inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
+      self.recognitionRequest?.append(buffer)
+    }
+    
+    audioEngine.prepare()
+    try? audioEngine.start()
+    
+    print("READY")
+  }
+  
+  func stop() {
+    audioEngine.stop()
+    audioEngine.inputNode.removeTap(onBus: 0)
+    recognitionRequest?.endAudio()
+    recognitionTask?.cancel()
+  }
+}
+```
+
+**Compilation:**
+
+```bash
+swiftc speech-recognizer.swift \
+  -o speech-recognizer \
+  -framework Speech \
+  -framework AVFoundation
+```
+
+**Output protocol:**
+- `READY` - Recognizer started
+- `PARTIAL:<text>` - Intermediate transcription
+- `FINAL:<text>` - Complete transcription
+- `ERROR:<message>` - Error occurred
+
+### Accumulation Behavior
+
+The Swift recognizer handles accumulation across pause-induced resets:
+
+```typescript
+startRecognizer(
+  (text) => {
+    ctx.ui.setEditorText(text);  // PARTIAL messages
+  },
+  (text) => {
+    ctx.ui.setEditorText(text);  // FINAL messages
+  },
+  (msg) => ctx.ui.notify(`Voice: ${msg}`, "error"),
+  () => {},
+);
+```
+
+Both PARTIAL and FINAL contain the full accumulated text, so the editor always shows complete content.
+
+## Keyboard Controls
+
+- **Enter** - Send transcribed text to agent
+- **Escape** - Cancel and exit voice mode
+- **Ctrl+Alt+V** - Toggle voice mode on/off (global shortcut)
+
+## Use Cases
+
+### Dictating Requirements
+
+```bash
+/voice
+
+# Speak:
+"The user dashboard needs three sections. 
+First, a summary card showing total tasks and completed percentage. 
+Second, a list of recent activity with timestamps. 
+Third, a quick action panel with buttons for creating new tasks."
+
+# Press Enter
+# Agent uses this as context for planning
+```
+
+### Explaining Bugs
+
+```bash
+/voice
+
+# Speak:
+"The authentication flow is broken. When users log in, 
+the token is stored correctly, but API requests still 
+return four-oh-one unauthorized. I think the header 
+format is wrong."
+
+# Agent investigates based on verbal description
+```
+
+### Code Review Feedback
+
+```bash
+/voice
+
+# Speak:
+"In the handle request function, there's no input validation. 
+We should check that the payload has required fields before 
+processing. Also, the error responses aren't consistent - 
+some return objects, some return strings."
+
+# Agent addresses feedback
+```
+
+## Source Implementation
+
+The voice command is implemented in `voice/index.ts:25`:
+
+```typescript
+export default function (pi: ExtensionAPI) {
+  if (process.platform !== "darwin") return;
+
+  let active = false;
+  let recognizerProcess: ChildProcess | null = null;
+
+  async function toggleVoice(ctx: ExtensionContext) {
+    if (active) {
+      killRecognizer();
+      active = false;
+      setVoiceFooter(ctx, false);
+      return;
+    }
+
+    if (!ensureBinary()) {
+      ctx.ui.notify("Voice: failed to compile speech recognizer (need Xcode CLI tools)", "error");
+      return;
+    }
+
+    active = true;
+    setVoiceFooter(ctx, true);
+    await runVoiceSession(ctx);
+  }
+
+  pi.registerCommand("voice", {
+    description: "Toggle voice mode",
+    handler: async (_args, ctx) => toggleVoice(ctx),
+  });
+
+  pi.registerShortcut("ctrl+alt+v", {
+    description: "Toggle voice mode (/voice)",
+    handler: async (ctx) => toggleVoice(ctx),
+  });
+
+  function startRecognizer(
+    onPartial: (text: string) => void,
+    onFinal: (text: string) => void,
+    onError: (msg: string) => void,
+    onReady: () => void,
+  ) {
+    recognizerProcess = spawn(RECOGNIZER_BIN, [], { stdio: ["pipe", "pipe", "pipe"] });
+    const rl = readline.createInterface({ input: recognizerProcess.stdout! });
+    
+    rl.on("line", (line: string) => {
+      if (line === "READY") { onReady(); return; }
+      if (line.startsWith("PARTIAL:")) onPartial(line.slice(8));
+      else if (line.startsWith("FINAL:")) onFinal(line.slice(6));
+      else if (line.startsWith("ERROR:")) onError(line.slice(6));
+    });
+    
+    recognizerProcess.on("error", (err) => onError(err.message));
+    recognizerProcess.on("exit", () => { recognizerProcess = null; });
+  }
+}
+```
+
+## Troubleshooting
+
+### "Failed to compile speech recognizer"
+
+**Symptom:** `/voice` shows error about compilation
+
+**Solution:**
+```bash
+# Install Xcode CLI tools
+xcode-select --install
+
+# Verify
+swiftc --version
+# Apple Swift version 5.9.2
+
+# Try again
+/voice
+```
+
+### No transcription appears
+
+**Symptom:** Voice mode active but no text in editor
+
+**Solution:**
+```bash
+# Check microphone permission
+# System Settings → Privacy & Security → Microphone
+# Ensure your terminal app is enabled
+
+# Test microphone
+# Speak loudly and clearly
+# Wait 1-2 seconds for transcription to start
+```
+
+### Transcription is garbled
+
+**Symptom:** Text doesn't match what you said
+
+**Solution:**
+- Speak clearly and at normal pace
+- Reduce background noise
+- Use a better microphone
+- Check System Settings → Siri & Spotlight → Language (should be "English - United States")
+
+### Binary not found after compile
+
+**Symptom:** "speech-recognizer binary missing"
+
+**Solution:**
+```bash
+# Manually compile
+cd ~/.config/opencode/extensions/voice/
+swiftc speech-recognizer.swift \
+  -o speech-recognizer \
+  -framework Speech \
+  -framework AVFoundation
+
+# Verify
+ls -l speech-recognizer
+# -rwxr-xr-x ... speech-recognizer
+
+# Try again
+/voice
+```
+
+## Best Practices
+
+<Tip>
+**Speak in complete sentences.** The recognizer works best with natural speech patterns. Pause briefly between sentences.
+</Tip>
+
+<Info>
+**Use for high-level instructions.** Voice mode is perfect for requirements, explanations, and discussion - less ideal for dictating code syntax.
+</Info>
+
+<Warning>
+**Review before sending.** Voice transcription isn't perfect. Always check the editor content before pressing Enter.
+</Warning>
+
+## Limitations
+
+- **macOS only** - Requires Apple Speech framework
+- **English only** - Configured for en-US locale
+- **No offline mode** - Requires network for Apple's speech API
+- **No streaming to agent** - Text is buffered until Enter
+- **Background noise** - Accuracy degrades with noise
+
+## Related Commands
+
+- [/gsd discuss](/commands/gsd-discuss) - Use voice for planning discussions
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Getting Started" icon="play" href="/introduction">
+    Learn the GSD workflow
+  </Card>
+  <Card title="Commands Overview" icon="terminal" href="/commands/overview">
+    Explore all commands
+  </Card>
+</CardGroup>

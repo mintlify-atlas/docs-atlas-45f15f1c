@@ -1,0 +1,628 @@
+---
+title: /worktree (/wt)
+description: Create isolated git worktrees for parallel development
+---
+
+The `/worktree` command (alias `/wt`) manages git worktrees under `.gsd/worktrees/`, enabling parallel development without switching branches or stashing.
+
+## Syntax
+
+```bash
+/worktree <name>              # Create/switch to worktree
+/worktree list                # List all worktrees
+/worktree switch <name>       # Switch to existing worktree
+/worktree merge [name] [target] # Merge worktree to target branch
+/worktree remove <name|all>   # Remove worktree
+/worktree return              # Return to main tree
+
+# Alias: /wt
+/wt <name>                    # Same as /worktree <name>
+```
+
+## Use Cases
+
+Worktrees are perfect for:
+
+- **Parallel experiments** - Try different approaches simultaneously
+- **Context switching** - Keep multiple features in progress
+- **Code review** - Review PRs without losing current work
+- **Hotfixes** - Fix production bugs without stashing
+- **Research spikes** - Explore without polluting main history
+
+## Basic Workflow
+
+### Creating a Worktree
+
+```bash
+# Create new worktree
+/worktree experiment
+
+# Output:
+# ✓ Worktree experiment created and activated.
+# 
+#   path     ~/.../project/.gsd/worktrees/experiment
+#   branch   gsd-wt/experiment
+#   Auto-committed on previous branch before switching.
+# 
+#   /worktree merge experiment  merge back when done
+#   /worktree return            switch back to main tree
+
+# You're now in the worktree
+pwd
+# ~/.../project/.gsd/worktrees/experiment
+
+git branch
+# * gsd-wt/experiment
+
+ls
+# (same files as main tree, but isolated working directory)
+```
+
+### Working in a Worktree
+
+```bash
+# Work normally
+code src/
+
+# Changes are isolated
+git status
+# On branch gsd-wt/experiment
+# Changes not staged for commit:
+#   modified:   src/api.ts
+
+# Run GSD in the worktree
+/gsd discuss
+# "I want to try a different API design"
+
+/gsd auto
+# Auto mode runs in the worktree
+# All commits go to gsd-wt/experiment branch
+```
+
+### Merging Back
+
+```bash
+# Merge worktree to main
+/worktree merge experiment
+
+# Preview shows:
+# Merge experiment → main
+# 
+#   5 files changed, +234 -89 lines (4 code, 1 GSD)
+# 
+#   Added:
+#     + src/api-v2.ts +156 -0
+#   Modified:
+#     ~ src/index.ts +45 -12
+#     ~ src/types.ts +23 -8
+#     ~ .gsd/milestones/M001/M001-ROADMAP.md +8 -2
+#   Removed:
+#     - src/api-v1.ts +0 -67
+# 
+# Actions:
+#   → Merge
+#     Cancel
+
+# After merge:
+# ✓ Merged experiment → main (deterministic squash)
+# 
+#   5 files changed, +234 -89 lines
+#   commit: feat(experiment): merge worktree experiment
+```
+
+### Returning to Main
+
+```bash
+# Go back to main tree
+/worktree return
+
+# Output:
+# ✓ Returned to main project tree.
+# 
+#   path  ~/.../project
+#   Auto-committed on worktree branch before returning.
+
+pwd
+# ~/.../project
+
+git branch
+# * main
+```
+
+## Commands
+
+### list
+
+Show all worktrees:
+
+```bash
+/worktree list
+
+# Output:
+# GSD Worktrees
+# 
+#   experiment ● active
+#     branch  gsd-wt/experiment
+#     path    ~/.../project/.gsd/worktrees/experiment
+# 
+#   refactor
+#     branch  gsd-wt/refactor
+#     path    ~/.../project/.gsd/worktrees/refactor
+# 
+#   main tree  ~/.../project
+```
+
+### switch
+
+Switch between worktrees:
+
+```bash
+# From main tree
+/worktree switch experiment
+
+# From one worktree to another
+/worktree switch refactor
+```
+
+### merge
+
+Merge worktree back to main (or another branch):
+
+```bash
+# Merge to main (default)
+/worktree merge experiment
+
+# Merge to specific branch
+/worktree merge experiment develop
+
+# Auto-detect current worktree
+/worktree merge
+# (when inside a worktree, merges that worktree to main)
+```
+
+**Merge strategies:**
+
+1. **Deterministic squash** (preferred)
+   - Tries `git merge --squash` first
+   - Creates single commit with all changes
+   - Clean linear history
+
+2. **LLM-guided merge** (conflict fallback)
+   - If squash conflicts, aborts and falls back
+   - Dispatches merge prompt to agent
+   - Agent resolves conflicts intelligently
+
+### remove
+
+Delete worktree and its branch:
+
+```bash
+# Remove specific worktree
+/worktree remove experiment
+
+# Confirmation:
+# Remove worktree experiment and delete branch gsd-wt/experiment?
+# 
+# Actions:
+#   Remove
+#   Cancel
+
+# After removal:
+# ✓ Worktree experiment removed (branch deleted).
+
+# Remove all worktrees
+/worktree remove all
+
+# Confirmation shows list of all worktrees to be removed
+```
+
+### return
+
+Return to main project tree:
+
+```bash
+/worktree return
+
+# Output:
+# ✓ Returned to main project tree.
+# 
+#   path  ~/.../project
+```
+
+## Auto-Commit
+
+Worktrees automatically commit changes when switching:
+
+```bash
+# In main tree
+code src/api.ts
+# (make changes, don't commit)
+
+/worktree experiment
+# Auto-committed uncommitted changes.
+# ✓ Worktree experiment created and activated.
+
+# Back in main tree:
+git log -1
+# commit abc123
+# Author: GSD Auto-commit
+# Date:   ...
+# 
+#     chore(worktree-switch): auto-commit before switching to experiment
+```
+
+This prevents losing work when switching between worktrees.
+
+## Directory Structure
+
+Worktrees are created under `.gsd/worktrees/`:
+
+```
+project/
+  .git/                     # Main git directory
+  .gsd/
+    worktrees/              # Worktree home
+      experiment/           # Worktree: experiment
+        .git                # (git link file)
+        src/                # (isolated working directory)
+        .gsd/               # (independent GSD state)
+      refactor/             # Worktree: refactor
+        .git
+        src/
+        .gsd/
+  src/                      # Main tree working directory
+  .gsd/                     # Main tree GSD state
+```
+
+**Key points:**
+- Each worktree has its own working directory
+- `.gsd/` state is independent per worktree
+- Worktrees share the same `.git/` repository (efficient)
+
+## GSD Integration
+
+### Planning Fresh
+
+Worktrees can start with clean GSD state:
+
+```bash
+/worktree experiment
+
+# Prompt:
+# Worktree Setup
+# 
+# This worktree inherited existing GSD milestones from the main branch.
+# 
+#   Continue — keep milestones and pick up where main left off
+#   Start fresh — clear milestones so /gsd auto starts a new project
+# 
+# Actions:
+#   Continue
+#   Start fresh
+
+# Choose "Start fresh"
+# ✓ Worktree experiment created and activated.
+#   ✓ Cleared milestones — /gsd auto will start fresh.
+
+ls .gsd/milestones/
+# (empty)
+
+/gsd discuss
+# "I want to try a different architecture"
+# (plans from scratch in the worktree)
+```
+
+### Merging GSD State
+
+Merge includes `.gsd/` artifacts:
+
+```bash
+/worktree merge experiment
+
+# Preview shows:
+# 5 files changed (4 code, 1 GSD)
+# 
+# Modified:
+#   ~ .gsd/milestones/M001/M001-ROADMAP.md +8 -2
+
+# After merge:
+# - Code changes merged to main
+# - GSD artifacts updated
+# - Main tree now has worktree's planning/execution state
+```
+
+## Merge Conflicts
+
+Worktree merge handles conflicts gracefully:
+
+### Deterministic Path (No Conflicts)
+
+```bash
+/worktree merge experiment
+
+# Output:
+# ✓ Merged experiment → main (deterministic squash)
+# 
+#   5 files changed, +234 -89 lines
+#   commit: feat(experiment): merge worktree experiment
+```
+
+### LLM Fallback (Conflicts)
+
+```bash
+/worktree merge experiment
+
+# Output:
+# Deterministic merge hit conflicts — falling back to LLM-guided merge.
+# ✓ Merge helper started for experiment (4 code + 1 GSD artifact changes)
+
+# Agent receives prompt:
+# "
+# Merge worktree experiment (branch gsd-wt/experiment) into main.
+# 
+# Commit log:
+# abc123 feat: implement new API design
+# def456 refactor: simplify error handling
+# 
+# Files changed:
+# - Added: src/api-v2.ts
+# - Modified: src/index.ts (CONFLICT)
+# - Modified: src/types.ts
+# 
+# GSD artifact diff:
+# --- .gsd/milestones/M001/M001-ROADMAP.md
+# +++ .gsd/milestones/M001/M001-ROADMAP.md
+# @@ -1,3 +1,5 @@
+# - [ ] **S01:** Authentication
+# - [ ] **S02:** API endpoints
+#+- [ ] **S03:** New API design
+# 
+# Code diff (conflicts marked):
+# ... (full diff with conflict markers)
+# 
+# Resolve conflicts, stage files, and commit.
+# "
+
+# Agent resolves conflicts:
+Agent: I'll resolve the merge conflicts in src/index.ts...
+# (edits file)
+# (stages changes)
+# (commits)
+
+Agent: Merge complete. The new API design is now on main.
+```
+
+## Branch Naming
+
+Worktrees use `gsd-wt/<name>` branch naming:
+
+```bash
+/worktree experiment
+
+git branch
+# * gsd-wt/experiment
+
+/worktree refactor
+
+git branch
+# * gsd-wt/refactor
+```
+
+This avoids conflicts with:
+- `main` (main branch)
+- `gsd/M001/S02` (slice branches from auto mode)
+- Feature branches (e.g., `feature/new-api`)
+
+## Source Implementation
+
+The worktree command is implemented in `worktree-command.ts:152`:
+
+```typescript
+async function worktreeHandler(
+  args: string,
+  ctx: ExtensionCommandContext,
+  pi: ExtensionAPI,
+  alias: string,
+): Promise<void> {
+  const trimmed = args.trim();
+  const basePath = process.cwd();
+
+  if (trimmed === "list") {
+    await handleList(basePath, ctx);
+    return;
+  }
+
+  if (trimmed === "return") {
+    await handleReturn(ctx);
+    return;
+  }
+
+  if (trimmed.startsWith("switch ") || trimmed.startsWith("create ")) {
+    const name = trimmed.replace(/^(?:switch|create)\s+/, "").trim();
+    const mainBase = originalCwd ?? basePath;
+    const existing = listWorktrees(mainBase);
+    
+    if (existing.some(wt => wt.name === name)) {
+      await handleSwitch(basePath, name, ctx);
+    } else {
+      await handleCreate(basePath, name, ctx);
+    }
+    return;
+  }
+
+  if (trimmed === "merge" || trimmed.startsWith("merge ")) {
+    // ... merge handling ...
+  }
+
+  if (trimmed === "remove" || trimmed.startsWith("remove ")) {
+    // ... remove handling ...
+  }
+
+  // Default: create or switch
+  const nameOnly = trimmed.split(/\s+/)[0]!;
+  const existing = listWorktrees(originalCwd ?? basePath);
+  
+  if (existing.some(wt => wt.name === nameOnly)) {
+    await handleSwitch(basePath, nameOnly, ctx);
+  } else {
+    await handleCreate(basePath, nameOnly, ctx);
+  }
+}
+```
+
+## Best Practices
+
+<Tip>
+**Name worktrees descriptively.** Use names like `refactor-auth`, `experiment-api-v2`, `fix-token-bug` - not `wt1`, `wt2`.
+</Tip>
+
+<Info>
+**Merge or remove when done.** Don't accumulate stale worktrees. After merging, remove the worktree to keep `.gsd/worktrees/` clean.
+</Info>
+
+<Warning>
+**Don't edit the same file in multiple worktrees simultaneously.** Git worktrees share the same repository - editing the same file in two worktrees can cause conflicts.
+</Warning>
+
+## Troubleshooting
+
+### Worktree list shows "missing"
+
+**Symptom:** `/worktree list` shows `✗ missing` badge
+
+**Solution:**
+```bash
+# Worktree directory was manually deleted
+# Remove stale entry
+/worktree remove experiment
+```
+
+### Can't switch to worktree
+
+**Symptom:** `/worktree switch experiment` fails
+
+**Solution:**
+```bash
+# Check if it exists
+/worktree list
+
+# If missing, recreate
+/worktree experiment
+```
+
+### Merge fails with conflicts
+
+**Symptom:** "Merge failed" error
+
+**Solution:**
+The LLM fallback should handle this automatically. If it doesn't:
+```bash
+# Manual resolution
+git status
+# (shows conflicted files)
+
+code src/conflicted-file.ts
+# (resolve conflicts)
+
+git add .
+git commit
+
+# Or abort and try again
+git merge --abort
+/worktree merge experiment
+```
+
+## Example Workflows
+
+### Parallel Experiments
+
+```bash
+# Try two different approaches
+/worktree approach-a
+/gsd discuss
+# "Try REST API"
+/gsd auto
+
+/worktree approach-b
+/gsd discuss
+# "Try GraphQL"
+/gsd auto
+
+# Compare
+/worktree switch approach-a
+cat src/api.ts
+
+/worktree switch approach-b
+cat src/api.ts
+
+# Merge winner
+/worktree merge approach-b
+
+# Clean up
+/worktree remove approach-a
+/worktree remove approach-b
+```
+
+### Code Review
+
+```bash
+# Reviewing a PR
+/worktree review-pr-123
+git fetch origin
+git checkout origin/feature/new-api
+
+# Review code
+code src/
+
+# Test locally
+npm test
+
+# Return to work
+/worktree return
+
+# Clean up
+/worktree remove review-pr-123
+```
+
+### Hotfix
+
+```bash
+# Production bug discovered
+/worktree hotfix-token-bug
+
+# Fix on production base
+git checkout origin/production
+
+# Fix
+code src/auth.ts
+
+# Test
+npm test
+
+# Merge to production
+git checkout production
+git merge gsd-wt/hotfix-token-bug
+git push
+
+# Return
+/worktree return
+
+# Clean up
+/worktree remove hotfix-token-bug
+```
+
+## Related Commands
+
+- [/gsd](/commands/gsd) - Works normally in worktrees
+- [/gsd auto](/commands/gsd-auto) - Executes in worktree context
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Git Service" icon="code-branch" href="/concepts/git-strategy">
+    Learn about GSD's git integration
+  </Card>
+  <Card title="Auto Mode" icon="play" href="/commands/gsd-auto">
+    Use auto mode in worktrees
+  </Card>
+</CardGroup>

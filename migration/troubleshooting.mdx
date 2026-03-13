@@ -1,0 +1,723 @@
+---
+title: "Migration Troubleshooting"
+description: "Common migration issues and how to resolve them"
+---
+
+## Common Migration Issues
+
+This guide covers common problems you might encounter when migrating from GSD v1 to v2, and how to fix them.
+
+## Directory Not Found
+
+### Symptom
+
+```
+Directory not found: /path/to/project/.planning
+
+Migration converts a .planning/ directory (from older GSD versions) into .gsd/ format.
+If you are starting a new project, use /gsd:new-project instead.
+If migrating, ensure the path contains a .planning/ directory.
+```
+
+### Cause
+
+The migration tool cannot find a `.planning` directory at the specified path.
+
+### Solutions
+
+<AccordionGroup>
+  <Accordion title="Verify directory exists">
+    Check that the `.planning` directory exists:
+    
+    ```bash
+    ls -la .planning
+    ```
+    
+    If it doesn't exist, you may not have a v1 project to migrate.
+  </Accordion>
+
+  <Accordion title="Check current directory">
+    Ensure you're in the correct project root:
+    
+    ```bash
+    pwd
+    ls -la
+    ```
+    
+    The `.planning` directory should be at the project root level.
+  </Accordion>
+
+  <Accordion title="Specify full path">
+    If running from a different directory, provide the full path:
+    
+    ```bash
+    /gsd migrate ~/projects/my-project
+    ```
+  </Accordion>
+
+  <Accordion title="Hidden directory">
+    Ensure the directory isn't hidden or renamed:
+    
+    ```bash
+    find . -name "*planning*" -type d
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Fatal Validation Errors
+
+### Symptom
+
+```
+✖ Directory does not exist (.planning)
+Migration blocked — fix the fatal issues above before retrying.
+```
+
+### Cause
+
+The validation phase found structural issues that prevent migration.
+
+### Solutions
+
+<Steps>
+  <Step title="Check directory permissions">
+    Ensure the directory is readable:
+    
+    ```bash
+    chmod -R u+r .planning
+    ```
+  </Step>
+
+  <Step title="Verify directory structure">
+    Confirm minimum viable structure exists:
+    
+    ```bash
+    tree -L 2 .planning
+    ```
+    
+    Should contain at least `phases/` directory or `ROADMAP.md`.
+  </Step>
+
+  <Step title="Fix corruption">
+    If files are corrupted, restore from backup:
+    
+    ```bash
+    git restore .planning
+    ```
+  </Step>
+</Steps>
+
+## Warning: Missing Optional Files
+
+### Symptom
+
+```
+⚠ ROADMAP.md not found — milestone structure will be inferred from phases/ directory
+⚠ PROJECT.md not found — project metadata will be empty
+⚠ REQUIREMENTS.md not found — requirements will be empty
+```
+
+### Cause
+
+Optional files are missing from the `.planning` directory. Migration can still proceed.
+
+### Impact
+
+<CardGroup cols={2}>
+  <Card title="Missing ROADMAP.md" icon="map">
+    - Milestones inferred from filesystem
+    - All phases grouped into single milestone M001
+    - No completion state preserved
+    - Sequential dependencies assumed
+  </Card>
+
+  <Card title="Missing PROJECT.md" icon="file">
+    - Empty project description
+    - Generic milestone vision
+    - No project context for agents
+  </Card>
+
+  <Card title="Missing REQUIREMENTS.md" icon="list-check">
+    - Empty requirements file created
+    - No requirement tracking
+    - Agents won't reference requirements
+  </Card>
+
+  <Card title="Missing STATE.md" icon="chart-line">
+    - State regenerated from migration data
+    - No impact on migration quality
+  </Card>
+</CardGroup>
+
+### Solutions
+
+<AccordionGroup>
+  <Accordion title="Create ROADMAP.md before migration">
+    If you want proper milestone structure, create a roadmap:
+    
+    ```markdown
+    # Roadmap
+    
+    - [x] 1. Setup
+    - [x] 2. Core Features
+    - [ ] 3. Polish
+    ```
+    
+    Then re-run migration.
+  </Accordion>
+
+  <Accordion title="Accept inferred structure">
+    Proceed with migration and manually organize milestones afterward in `.gsd/`.
+  </Accordion>
+
+  <Accordion title="Add metadata post-migration">
+    After migration, edit:
+    - `.gsd/PROJECT.md` for project description
+    - `.gsd/REQUIREMENTS.md` for requirements
+    - `.gsd/milestones/M001/M001-ROADMAP.md` for better vision
+  </Accordion>
+</AccordionGroup>
+
+## Existing .gsd Directory Warning
+
+### Symptom
+
+```
+⚠ A .gsd directory already exists in the current working directory — it will be overwritten.
+```
+
+### Cause
+
+You've already migrated or have an existing `.gsd` directory.
+
+### Solutions
+
+<Steps>
+  <Step title="Backup existing .gsd">
+    If you want to preserve the current `.gsd`:
+    
+    ```bash
+    mv .gsd .gsd.backup
+    ```
+  </Step>
+
+  <Step title="Cancel migration">
+    Choose "Cancel" in the migration wizard to abort.
+  </Step>
+
+  <Step title="Proceed with overwrite">
+    Choose "Write .gsd directory" to replace existing files.
+    
+    <Warning>This will delete all existing `.gsd` content!</Warning>
+  </Step>
+</Steps>
+
+## Duplicate Phase Numbers
+
+### Symptom
+
+Multiple phase directories with the same number (e.g., `01-setup` and `01-auth`).
+
+### Cause
+
+Phase numbers were reused across milestones in the old format.
+
+### How Migration Handles This
+
+The migration tool uses **full directory names as keys** instead of just phase numbers. This means:
+
+- `01-setup` and `01-auth` are treated as distinct phases
+- Both are migrated to separate slices
+- Phase matching uses both number and slug similarity
+- First match wins if ambiguity remains
+
+### No Action Required
+
+This is handled automatically. The migration will:
+1. Parse both phase directories
+2. Match each to roadmap entries by number and title similarity
+3. Create separate slices with sequential IDs (S01, S02, etc.)
+
+## Orphan Summaries
+
+### Symptom
+
+Summary files exist without corresponding plan files (e.g., `29-01-SUMMARY.md` but no `29-01-PLAN.md`).
+
+### Cause
+
+Plan files were deleted or moved, but summaries remained.
+
+### How Migration Handles This
+
+- Orphan summaries are preserved
+- Tasks are created with:
+  - Empty description (no plan objective available)
+  - Generic title from phase and plan number
+  - Summary data intact
+  - `done: true` state
+
+### Post-Migration Fix
+
+<Steps>
+  <Step title="Identify orphan tasks">
+    Look for tasks with minimal descriptions:
+    
+    ```bash
+    grep -r "Migrated from legacy" .gsd/milestones/*/slices/*/tasks/
+    ```
+  </Step>
+
+  <Step title="Edit task plans">
+    Add meaningful descriptions to orphan task plan files.
+  </Step>
+
+  <Step title="Verify with /gsd status">
+    Confirm tasks show up correctly:
+    
+    ```bash
+    gsd
+    /gsd status
+    ```
+  </Step>
+</Steps>
+
+## Malformed Roadmap
+
+### Symptom
+
+Roadmap parsing produces unexpected milestone or slice structure.
+
+### Causes
+
+- Inconsistent checkbox syntax: `[x]`, `[X]`, `[ x ]`
+- Missing phase numbers in roadmap entries
+- Malformed milestone section headers
+- Non-standard list formatting
+
+### Solutions
+
+<AccordionGroup>
+  <Accordion title="Standardize checkbox syntax">
+    Ensure checkboxes use standard markdown:
+    
+    ```markdown
+    - [x] Completed item
+    - [ ] Incomplete item
+    ```
+    
+    Not:
+    ```markdown
+    - [X] Item
+    - [  ] Item  (extra spaces)
+    - [] Item    (no space)
+    ```
+  </Accordion>
+
+  <Accordion title="Add phase numbers">
+    Roadmap entries should include phase numbers:
+    
+    ```markdown
+    - [x] 1. Phase One
+    - [ ] 2. Phase Two
+    ```
+    
+    Numbers are used to match roadmap entries to phase directories.
+  </Accordion>
+
+  <Accordion title="Fix milestone sections">
+    For multi-milestone projects, use proper structure:
+    
+    ```markdown
+    <details>
+    <summary><strong>v1.0 — MVP</strong></summary>
+    
+    - [x] 1. Phase One
+    - [x] 2. Phase Two
+    
+    </details>
+    ```
+  </Accordion>
+
+  <Accordion title="Validate and retry">
+    After fixes:
+    
+    ```bash
+    gsd
+    /gsd migrate
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Missing Frontmatter
+
+### Symptom
+
+Plan or summary files lack YAML frontmatter, resulting in incomplete task metadata.
+
+### Cause
+
+Old v1 plans/summaries were created manually without frontmatter.
+
+### How Migration Handles This
+
+- Parser tolerates missing frontmatter
+- Falls back to defaults:
+  - Task files: empty arrays for files, must-haves
+  - Summary files: empty provides, key-files, durations
+  - Titles derived from file names
+
+### Post-Migration Enhancement
+
+<Steps>
+  <Step title="Identify tasks with missing metadata">
+    Check for empty must-haves or file lists:
+    
+    ```bash
+    grep -L "must_haves" .gsd/milestones/*/slices/*/tasks/*-PLAN.md
+    ```
+  </Step>
+
+  <Step title="Add verification criteria">
+    Edit task plan files to add must-haves manually if critical.
+  </Step>
+
+  <Step title="Optional: re-generate with agent">
+    Ask an agent to enrich task metadata:
+    
+    ```bash
+    gsd
+    # In chat: "Review task T03 and add missing verification criteria"
+    ```
+  </Step>
+</Steps>
+
+## deriveState() Fails After Migration
+
+### Symptom
+
+```bash
+gsd
+/gsd status
+# Error: Could not derive state
+```
+
+### Cause
+
+The written `.gsd` directory doesn't parse correctly through GSD 2's state derivation.
+
+### Diagnosis
+
+<Steps>
+  <Step title="Run doctor command">
+    ```bash
+    gsd
+    /gsd doctor
+    ```
+    
+    This validates `.gsd/` integrity.
+  </Step>
+
+  <Step title="Check for syntax errors">
+    Look for malformed markdown:
+    
+    ```bash
+    # Check roadmap
+    cat .gsd/milestones/M001/M001-ROADMAP.md
+    
+    # Check plans
+    find .gsd -name "*-PLAN.md" -exec head -20 {} \;
+    ```
+  </Step>
+
+  <Step title="Validate YAML frontmatter">
+    Summary files need valid YAML:
+    
+    ```bash
+    find .gsd -name "*-SUMMARY.md" -exec head -30 {} \;
+    ```
+  </Step>
+</Steps>
+
+### Solutions
+
+<AccordionGroup>
+  <Accordion title="Re-run migration with review">
+    The agent review catches these issues:
+    
+    ```bash
+    /gsd migrate
+    # Choose "Review migration" at the end
+    ```
+  </Accordion>
+
+  <Accordion title="Manual fix">
+    Common issues to fix manually:
+    
+    - **Missing frontmatter delimiters**: Ensure `---` surrounds YAML
+    - **Invalid YAML**: Check indentation, colons, array syntax
+    - **Malformed checkboxes**: Use `[x]` or `[ ]`, not `[X]` or `[]`
+    - **Empty required fields**: Add placeholder content
+  </Accordion>
+
+  <Accordion title="Use /gsd doctor">
+    Run doctor to auto-fix common issues:
+    
+    ```bash
+    gsd
+    /gsd doctor --fix
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Empty Milestone Vision
+
+### Symptom
+
+Milestone roadmap shows:
+
+```markdown
+**Vision:** (migrated project)
+```
+
+### Cause
+
+No meaningful vision could be extracted from `PROJECT.md` or roadmap title.
+
+### Solutions
+
+<Steps>
+  <Step title="Edit roadmap file">
+    Open `.gsd/milestones/M001/M001-ROADMAP.md` and update:
+    
+    ```markdown
+    **Vision:** Build a production-ready authentication system
+    ```
+  </Step>
+
+  <Step title="Add project description">
+    Edit `.gsd/PROJECT.md` with a clear description:
+    
+    ```markdown
+    # Project
+    
+    A scalable authentication system with OAuth2, MFA, and session management.
+    ```
+  </Step>
+
+  <Step title="Re-derive state">
+    ```bash
+    gsd
+    /gsd status
+    ```
+    
+    Vision updates will be reflected.
+  </Step>
+</Steps>
+
+## Requirements Have Wrong Status
+
+### Symptom
+
+Completed requirements show as "active" instead of "validated".
+
+### Cause
+
+Old requirements used non-standard status values (e.g., "done", "complete").
+
+### How Migration Handles This
+
+Status normalization:
+
+- `complete`, `completed`, `done`, `shipped` → `validated`
+- `active`, `validated`, `deferred` → preserved as-is
+- All other values → `active`
+
+### Post-Migration Fix
+
+<Steps>
+  <Step title="Review REQUIREMENTS.md">
+    Check groupings:
+    
+    ```bash
+    grep "^## " .gsd/REQUIREMENTS.md
+    ```
+    
+    Should show: Active, Validated, Deferred, Out of Scope
+  </Step>
+
+  <Step title="Move misplaced requirements">
+    Manually move requirements between sections if needed.
+  </Step>
+
+  <Step title="Update status field">
+    Edit each requirement's status line:
+    
+    ```markdown
+    ### R001 — User Authentication
+    
+    - Status: validated
+    ```
+  </Step>
+</Steps>
+
+## Research Files Missing
+
+### Symptom
+
+Expected research content is missing from milestone or slice research files.
+
+### Causes
+
+- Research files in `.planning` had names not matching the pattern
+- Files were in unexpected directories
+- Content was in verification files instead
+
+### Investigation
+
+<Steps>
+  <Step title="Check source directory">
+    Look for research files in old format:
+    
+    ```bash
+    find .planning -name "*research*" -o -name "*RESEARCH*"
+    ```
+  </Step>
+
+  <Step title="Check phase directories">
+    Research should be in:
+    - `.planning/research/` (top-level)
+    - `.planning/phases/*/` (phase-level)
+  </Step>
+
+  <Step title="Check case sensitivity">
+    Research detection is case-insensitive, but ensure files contain "RESEARCH" in the name:
+    
+    ```bash
+    ls .planning/phases/01-setup/
+    # Should include: RESEARCH.md or 01-RESEARCH.md
+    ```
+  </Step>
+</Steps>
+
+### Solutions
+
+<AccordionGroup>
+  <Accordion title="Rename and re-migrate">
+    Rename files to include "RESEARCH":
+    
+    ```bash
+    mv .planning/phases/01-setup/notes.md .planning/phases/01-setup/RESEARCH.md
+    ```
+    
+    Then re-run migration.
+  </Accordion>
+
+  <Accordion title="Manually add post-migration">
+    Copy content to migrated structure:
+    
+    ```bash
+    cat .planning/phases/01-setup/notes.md >> .gsd/milestones/M001/slices/S01/S01-RESEARCH.md
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Performance: Large Projects
+
+### Symptom
+
+Migration is slow for projects with many phases (50+) or large files.
+
+### Expected Behavior
+
+- Small projects (1-10 phases): < 5 seconds
+- Medium projects (10-30 phases): 5-15 seconds
+- Large projects (30-100 phases): 15-60 seconds
+- Very large projects (100+ phases): 1-3 minutes
+
+### Optimization
+
+<Steps>
+  <Step title="Reduce preview overhead">
+    Skip the agent review for very large projects:
+    
+    ```bash
+    /gsd migrate
+    # Choose "Skip review" at the end
+    ```
+  </Step>
+
+  <Step title="Split milestones">
+    For 100+ phases, consider:
+    1. Manually create milestone-sectioned roadmap
+    2. Group phases into 4-10 milestone sections
+    3. Re-run migration
+    
+    Smaller milestones process faster.
+  </Step>
+
+  <Step title="Clean up before migration">
+    Remove unused phase directories:
+    
+    ```bash
+    mv .planning/phases/.archive/ /tmp/
+    ```
+  </Step>
+</Steps>
+
+## Getting Help
+
+If you encounter issues not covered here:
+
+<CardGroup cols={2}>
+  <Card title="Run Doctor" icon="stethoscope" href="/commands/gsd-doctor">
+    Use `/gsd doctor` to diagnose and auto-fix common issues
+  </Card>
+
+  <Card title="Check Logs" icon="file-lines">
+    Review session logs in `~/.gsd/sessions/` for error details
+  </Card>
+
+  <Card title="GitHub Issues" icon="github" href="https://github.com/gsd-build/gsd-2/issues">
+    Report bugs or request help on GitHub
+  </Card>
+
+  <Card title="Manual Repair" icon="wrench" href="/api/gsd-directory">
+    Review directory structure reference for manual fixes
+  </Card>
+</CardGroup>
+
+## Prevention Tips
+
+To avoid migration issues:
+
+<Steps>
+  <Step title="Maintain clean v1 structure">
+    - Follow standard naming conventions
+    - Keep ROADMAP.md updated
+    - Use consistent checkbox syntax
+    - Include YAML frontmatter in plans/summaries
+  </Step>
+
+  <Step title="Test migration early">
+    Run migration on a copy first:
+    
+    ```bash
+    cp -r .planning .planning.test
+    # Run migration in test directory
+    ```
+  </Step>
+
+  <Step title="Use agent review">
+    Always choose "Review migration" on first migration to catch issues early.
+  </Step>
+
+  <Step title="Version control">
+    Commit before migration:
+    
+    ```bash
+    git add .
+    git commit -m "Pre-migration snapshot"
+    ```
+  </Step>
+</Steps>
