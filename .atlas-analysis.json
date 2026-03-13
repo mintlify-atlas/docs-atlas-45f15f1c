@@ -1,0 +1,155 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "GSD 2",
+  "projectDescription": "A powerful meta-prompting, context engineering and spec-driven development system that enables agents to work autonomously without losing track of the big picture",
+  "theme": "aspen",
+  "primaryColor": "#848c8e",
+  "lightColor": "#11161e",
+  "darkColor": "#cfd0d2",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/workflow",
+              "concepts/milestones-slices-tasks",
+              "concepts/context-engineering",
+              "concepts/git-strategy"
+            ]
+          },
+          {
+            "group": "Usage Guide",
+            "pages": [
+              "guide/step-mode",
+              "guide/auto-mode",
+              "guide/two-terminal-workflow",
+              "guide/verification"
+            ]
+          },
+          {
+            "group": "Commands",
+            "pages": [
+              "commands/overview",
+              "commands/gsd",
+              "commands/gsd-auto",
+              "commands/gsd-discuss",
+              "commands/gsd-status",
+              "commands/gsd-queue",
+              "commands/gsd-prefs",
+              "commands/gsd-migrate",
+              "commands/gsd-doctor",
+              "commands/worktree",
+              "commands/voice"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/preferences",
+              "configuration/models",
+              "configuration/providers",
+              "configuration/budget",
+              "configuration/timeouts"
+            ]
+          },
+          {
+            "group": "Extensions & Tools",
+            "pages": [
+              "extensions/overview",
+              "extensions/browser-tools",
+              "extensions/search-web",
+              "extensions/context7",
+              "extensions/background-shell",
+              "extensions/subagent",
+              "extensions/mac-tools",
+              "extensions/voice",
+              "extensions/mcporter"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/architecture-deep-dive",
+              "advanced/state-management",
+              "advanced/crash-recovery",
+              "advanced/skill-discovery",
+              "advanced/dashboard"
+            ]
+          },
+          {
+            "group": "Migration",
+            "pages": [
+              "migration/from-v1",
+              "migration/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "File Structure",
+            "pages": [
+              "api/gsd-directory",
+              "api/project-files",
+              "api/state-files",
+              "api/roadmap-format",
+              "api/plan-format",
+              "api/summary-format"
+            ]
+          },
+          {
+            "group": "Agents",
+            "pages": [
+              "api/agents/scout",
+              "api/agents/researcher",
+              "api/agents/worker"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Autonomous multi-task execution with fresh context per task",
+    "Automated git branch-per-slice with squash merge strategy",
+    "State machine driven by disk files for crash recovery",
+    "Cost tracking and budget ceilings per model and phase",
+    "Timeout supervision with soft/idle/hard timeouts",
+    "Multi-provider LLM support with per-phase model selection",
+    "Real-time dashboard overlay with progress tracking",
+    "Built-in extensions for browser automation, web search, and more",
+    "Migration tool from GSD v1 to v2 format"
+  ],
+  "publicApiSurface": [
+    "/gsd - Step mode with contextual wizard",
+    "/gsd auto - Autonomous mode execution",
+    "/gsd next - Explicit step mode",
+    "/gsd stop - Stop auto mode gracefully",
+    "/gsd discuss - Architecture discussion mode",
+    "/gsd status - Progress dashboard",
+    "/gsd queue - Queue future milestones",
+    "/gsd prefs - Model selection and preferences",
+    "/gsd migrate - Migrate from v1 format",
+    "/gsd doctor - Validate .gsd/ directory",
+    "/worktree (/wt) - Git worktree management",
+    "/voice - Toggle speech-to-text",
+    "/exit - Graceful exit",
+    "/clear - Start new session",
+    "gsd config - Setup wizard",
+    "gsd --continue (-c) - Resume session"
+  ]
+}
